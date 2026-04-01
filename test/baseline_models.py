@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 import numpy as np
-import xgboost as xgb
+from catboost import CatBoostClassifier, CatBoostRegressor
 import matplotlib.pyplot as plt
 from sklearn.inspection import partial_dependence
 from sklearn.model_selection import train_test_split
@@ -20,15 +20,15 @@ def create_baseline_plots():
             "name": "regression",
             "data_path": "/workspaces/test_output/regression/california_housing.csv",
             "output_dir": "/workspaces/test_output/regression/original_code/",
-            "model_class": xgb.XGBRegressor,
-            "params": {"objective": "count:poisson", "random_state": random_seed}
+            "model_class": CatBoostRegressor,
+            "params": {"loss_function": "Poisson", "random_seed": random_seed}
         },
         {
             "name": "classification",
             "data_path": "/workspaces/test_output/classification/breast_cancer.csv",
             "output_dir": "/workspaces/test_output/classification/original_code/",
-            "model_class": xgb.XGBClassifier,
-            "params": {"objective": "binary:logistic", "random_state": random_seed}
+            "model_class": CatBoostClassifier,
+            "params": {"loss_function": "Logloss", "random_seed": random_seed}
         }
     ]
 
@@ -49,12 +49,12 @@ def create_baseline_plots():
         for depth in depths:
             print(f"  Training model with depth {depth}...")
             params = task["params"].copy()
-            params["max_depth"] = depth
-            params["early_stopping_rounds"] = 25
-            params["n_estimators"] = 1000 # Increase estimators to allow early stopping to work
+            params["depth"] = depth
+            params["iterations"] = 1000 # Increase estimators to allow early stopping to work
+            params["train_dir"] = "/workspaces/catboost_info"
             
             model = task["model_class"](**params)
-            model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
+            model.fit(X_train, y_train, eval_set=[(X_val, y_val)], early_stopping_rounds=25, verbose=False)
 
             # Get top N features by importance
             importances = model.feature_importances_
