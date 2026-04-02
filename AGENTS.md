@@ -58,6 +58,7 @@ Recommended parameter families:
 - `interpolation_span_mode`: `absolute` or `relative`
 - `interpolation_span_per_float_feature`
 - `interpolation_features`
+- `interpolation_min_span`
 
 The exact names can change to fit CatBoost conventions, but the semantics should stay stable:
 
@@ -101,6 +102,13 @@ Prefer this order:
 6. Decide whether exported standalone model code should support interpolation or explicitly reject it.
 
 Do not start with broad package plumbing before the core evaluator behavior is correct and tested.
+
+## Interpolation Weight Logic
+
+actual_span = ifelse(span_type=='relative', MAX(minimum_span, span * abs(split_point)), span)
+split_weight_linear = (MIN(MAX(split - actual_span, feature_value), split + actual_span) - split)/(2*actual_span)
+split_weight_sigmoid = 1-(EXP(5/actual_span*(feature_value - split))+1)^(-1)
+
 
 ## Testing Expectations
 
