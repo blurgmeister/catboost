@@ -94,6 +94,36 @@ struct TNonSymmetricTreeStepNode {
     }
 };
 
+struct TFloatFeatureInterpolationConfig {
+    ui32 FloatFeatureIndex = 0;
+    double Span = 0.0;
+
+    bool operator==(const TFloatFeatureInterpolationConfig& other) const {
+        return std::tie(FloatFeatureIndex, Span) == std::tie(other.FloatFeatureIndex, other.Span);
+    }
+
+    bool operator!=(const TFloatFeatureInterpolationConfig& other) const {
+        return !(*this == other);
+    }
+};
+
+struct TFloatFeaturesInterpolationOptions {
+    bool Enabled = false;
+    EFloatFeaturesInterpolationType Type = EFloatFeaturesInterpolationType::Linear;
+    EFloatFeaturesInterpolationSpanMode SpanMode = EFloatFeaturesInterpolationSpanMode::Absolute;
+    double MinSpan = 0.0;
+    TVector<TFloatFeatureInterpolationConfig> PerFloatFeatureConfig;
+
+    bool operator==(const TFloatFeaturesInterpolationOptions& other) const {
+        return std::tie(Enabled, Type, SpanMode, MinSpan, PerFloatFeatureConfig) ==
+            std::tie(other.Enabled, other.Type, other.SpanMode, other.MinSpan, other.PerFloatFeatureConfig);
+    }
+
+    bool operator!=(const TFloatFeaturesInterpolationOptions& other) const {
+        return !(*this == other);
+    }
+};
+
 struct IModelTreeData {
     enum class ECloningPolicy { Default, CloneAsSolid, CloneAsOpaque };
 
@@ -171,6 +201,9 @@ public:
         //! Offset of first tree leaf in flat tree leafs array
         TVector<size_t> TreeFirstLeafOffsets;
 
+        // Negative span means interpolation is disabled for the float feature.
+        TVector<double> FloatFeatureInterpolationSpans;
+
         /**
          * List all unique CTR bases (feature combination + ctr type) in model
          * @return
@@ -207,7 +240,8 @@ public:
             CtrFeatures,
             EstimatedFeatures,
             ScaleAndBias,
-            ModelTreeData
+            ModelTreeData,
+            FloatFeaturesInterpolationOptions
         )
         = std::forward_as_tuple(
             other.ApproxDimension,
@@ -219,7 +253,8 @@ public:
             other.CtrFeatures,
             other.EstimatedFeatures,
             other.ScaleAndBias,
-            other.ModelTreeData->Clone(IModelTreeData::ECloningPolicy::Default)
+            other.ModelTreeData->Clone(IModelTreeData::ECloningPolicy::Default),
+            other.FloatFeaturesInterpolationOptions
         );
 
         RepackedBins = other.RepackedBins;
@@ -245,7 +280,8 @@ public:
             OneHotFeatures,
             CtrFeatures,
             EstimatedFeatures,
-            ScaleAndBias)
+            ScaleAndBias,
+            FloatFeaturesInterpolationOptions)
           == std::forward_as_tuple(
             other.ApproxDimension,
             other.GetModelTreeData()->GetTreeSplits(),
@@ -261,7 +297,8 @@ public:
             other.OneHotFeatures,
             other.CtrFeatures,
             other.EstimatedFeatures,
-            other.ScaleAndBias);
+            other.ScaleAndBias,
+            other.FloatFeaturesInterpolationOptions);
     }
 
     bool operator!=(const TModelTrees& other) const {
@@ -548,6 +585,16 @@ public:
 
     void SetScaleAndBias(const TScaleAndBias&);
 
+    const TFloatFeaturesInterpolationOptions& GetFloatFeaturesInterpolationOptions() const noexcept {
+        return FloatFeaturesInterpolationOptions;
+    }
+
+    void SetFloatFeaturesInterpolationOptions(TFloatFeaturesInterpolationOptions options);
+
+    bool HasEnabledFloatFeaturesInterpolation() const noexcept {
+        return FloatFeaturesInterpolationOptions.Enabled && !FloatFeaturesInterpolationOptions.PerFloatFeatureConfig.empty();
+    }
+
 private:
     void DeserializeFeatures(const NCatBoostFbs::TModelTrees* fbObj);
 
@@ -602,6 +649,8 @@ private:
 
     //! For computing final formula result as `Scale * sumTrees + Bias`
     TScaleAndBias ScaleAndBias;
+
+    TFloatFeaturesInterpolationOptions FloatFeaturesInterpolationOptions;
 
     TAtomicSharedPtr<TRuntimeData> RuntimeData;
     TAtomicSharedPtr<TForApplyData> ApplyData;

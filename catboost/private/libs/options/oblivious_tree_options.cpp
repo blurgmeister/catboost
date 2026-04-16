@@ -38,6 +38,11 @@ NCatboostOptions::TObliviousTreeLearnerOptions::TObliviousTreeLearnerOptions(ETa
       , MonotoneConstraints("monotone_constraints", {}, taskType)
       , DevLeafwiseApproxes("dev_leafwise_approxes", false, taskType)
       , FeaturePenalties("penalties", TFeaturePenaltiesOptions())
+      , FloatFeaturesInterpolationEnabled("interpolation_enabled", false)
+      , FloatFeaturesInterpolationType("interpolation_type", EFloatFeaturesInterpolationType::Linear)
+      , FloatFeaturesInterpolationSpanMode("interpolation_span_mode", EFloatFeaturesInterpolationSpanMode::Absolute)
+      , FloatFeaturesInterpolationSpanPerFeature("interpolation_span_per_float_feature", {})
+      , FloatFeaturesInterpolationMinSpan("interpolation_min_span", 0.0)
       , TaskType("task_type", taskType)
 {
     SamplingFrequency.ChangeLoadUnimplementedPolicy(ELoadUnimplementedPolicy::ExceptionOnChange);
@@ -69,7 +74,12 @@ void NCatboostOptions::TObliviousTreeLearnerOptions::Load(const NJson::TJsonValu
             &FixedBinarySplits,
             &MonotoneConstraints,
             &DevLeafwiseApproxes,
-            &FeaturePenalties
+            &FeaturePenalties,
+            &FloatFeaturesInterpolationEnabled,
+            &FloatFeaturesInterpolationType,
+            &FloatFeaturesInterpolationSpanMode,
+            &FloatFeaturesInterpolationSpanPerFeature,
+            &FloatFeaturesInterpolationMinSpan
             );
 
     Validate();
@@ -92,7 +102,12 @@ void NCatboostOptions::TObliviousTreeLearnerOptions::Save(NJson::TJsonValue* opt
             FixedBinarySplits,
             MonotoneConstraints,
             DevLeafwiseApproxes,
-            FeaturePenalties
+            FeaturePenalties,
+            FloatFeaturesInterpolationEnabled,
+            FloatFeaturesInterpolationType,
+            FloatFeaturesInterpolationSpanMode,
+            FloatFeaturesInterpolationSpanPerFeature,
+            FloatFeaturesInterpolationMinSpan
             );
 }
 
@@ -103,7 +118,10 @@ bool NCatboostOptions::TObliviousTreeLearnerOptions::operator==(const TOblivious
             AddRidgeToTargetFunctionFlag, ScoreFunction, GrowPolicy, MaxLeaves, MinDataInLeaf, MaxCtrComplexityForBordersCaching,
             PairwiseNonDiagReg, LeavesEstimationBacktrackingType, DevScoreCalcObjBlockSize,
             DevExclusiveFeaturesBundleMaxBuckets, SparseFeaturesConflictFraction, FixedBinarySplits,
-            MonotoneConstraints, DevLeafwiseApproxes, FeaturePenalties
+            MonotoneConstraints, DevLeafwiseApproxes, FeaturePenalties,
+            FloatFeaturesInterpolationEnabled, FloatFeaturesInterpolationType,
+            FloatFeaturesInterpolationSpanMode, FloatFeaturesInterpolationSpanPerFeature,
+            FloatFeaturesInterpolationMinSpan
             ) ==
         std::tie(rhs.MaxDepth, rhs.LeavesEstimationIterations, rhs.LeavesEstimationMethod, rhs.L2Reg, rhs.MetaL2Exponent, rhs.MetaL2Frequency, rhs.ModelSizeReg,
                 rhs.RandomStrength, rhs.RandomScoreType,
@@ -112,7 +130,10 @@ bool NCatboostOptions::TObliviousTreeLearnerOptions::operator==(const TOblivious
                 rhs.ScoreFunction, rhs.GrowPolicy, rhs.MaxLeaves, rhs.MinDataInLeaf, rhs.MaxCtrComplexityForBordersCaching,
                 rhs.PairwiseNonDiagReg, rhs.LeavesEstimationBacktrackingType, rhs.DevScoreCalcObjBlockSize,
                 rhs.DevExclusiveFeaturesBundleMaxBuckets, rhs.SparseFeaturesConflictFraction,
-                rhs.FixedBinarySplits, rhs.MonotoneConstraints, rhs.DevLeafwiseApproxes, rhs.FeaturePenalties);
+                rhs.FixedBinarySplits, rhs.MonotoneConstraints, rhs.DevLeafwiseApproxes, rhs.FeaturePenalties,
+                rhs.FloatFeaturesInterpolationEnabled, rhs.FloatFeaturesInterpolationType,
+                rhs.FloatFeaturesInterpolationSpanMode, rhs.FloatFeaturesInterpolationSpanPerFeature,
+                rhs.FloatFeaturesInterpolationMinSpan);
 }
 
 bool NCatboostOptions::TObliviousTreeLearnerOptions::operator!=(const TObliviousTreeLearnerOptions& rhs) const {
@@ -150,4 +171,20 @@ void NCatboostOptions::TObliviousTreeLearnerOptions::Validate() const {
         TaskType.Get() == ETaskType::CPU || (RandomScoreType == ERandomScoreType::NormalWithModelSizeDecrease),
         "random_score_type must be NormalWithModelSizeDecrease for GPU"
     );
+
+    CB_ENSURE(FloatFeaturesInterpolationMinSpan.Get() >= 0.0, "interpolation_min_span should be >= 0");
+    for (const auto& [featureIdx, span] : FloatFeaturesInterpolationSpanPerFeature.Get()) {
+        Y_UNUSED(featureIdx);
+        CB_ENSURE(span > 0.0, "interpolation spans should be > 0");
+    }
+    if (FloatFeaturesInterpolationEnabled.Get()) {
+        CB_ENSURE(
+            GrowPolicy.Get() == EGrowPolicy::SymmetricTree,
+            "Interpolation at inference time is currently supported only for symmetric trees"
+        );
+        CB_ENSURE(
+            !FloatFeaturesInterpolationSpanPerFeature.Get().empty(),
+            "interpolation_enabled requires interpolation_span_per_float_feature to be specified"
+        );
+    }
 }

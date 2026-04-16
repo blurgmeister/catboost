@@ -6,6 +6,7 @@
 #include <util/stream/format.h>
 #include <util/system/compiler.h>
 
+#include <cmath>
 #include <cstring>
 
 namespace NCB::NModelEvaluation {
@@ -755,6 +756,129 @@ namespace NCB::NModelEvaluation {
         }
     }
 
+    static Y_FORCE_INLINE double CalcHardRightWeight(
+        const ui8* __restrict binFeatures,
+        size_t docCountInBlock,
+        const TRepackedBin& split,
+        size_t docId
+    ) {
+        return ((binFeatures[split.FeatureIndex * docCountInBlock + docId] ^ split.XorMask) >= split.SplitIdx) ? 1.0 : 0.0;
+    }
+
+    static Y_FORCE_INLINE double CalcInterpolatedRightWeight(
+        const TModelTrees& trees,
+        const TModelTrees::TForApplyData& applyData,
+        const TCPUEvaluatorQuantizedData* quantizedData,
+        const ui8* __restrict binFeatures,
+        size_t docCountInBlock,
+        size_t docId,
+        int splitIdx
+    ) {
+        const auto& split = trees.GetBinFeatures()[splitIdx];
+        const auto& repackedSplit = trees.GetRepackedBins()[splitIdx];
+        if (split.Type != ESplitType::FloatFeature || quantizedData->RawFloatFeatureCount == 0) {
+            return CalcHardRightWeight(binFeatures, docCountInBlock, repackedSplit, docId);
+        }
+
+        const ui32 floatFeatureIdx = split.FloatFeature.FloatFeature;
+        if (floatFeatureIdx >= applyData.FloatFeatureInterpolationSpans.size()) {
+            return CalcHardRightWeight(binFeatures, docCountInBlock, repackedSplit, docId);
+        }
+
+        const auto rawFloatData = *quantizedData->RawFloatData;
+        const float rawValue = rawFloatData[floatFeatureIdx * quantizedData->RawFloatBlockStride + docId];
+        const double border = split.FloatFeature.Split;
+        if (std::isnan(rawValue)) {
+            return CalcHardRightWeight(binFeatures, docCountInBlock, repackedSplit, docId);
+        }
+
+        const double configuredSpan = applyData.FloatFeatureInterpolationSpans[floatFeatureIdx];
+        if (configuredSpan <= 0.0) {
+            return rawValue > border ? 1.0 : 0.0;
+        }
+
+        const auto& interpolationOptions = trees.GetFloatFeaturesInterpolationOptions();
+        const double actualSpan = interpolationOptions.SpanMode == EFloatFeaturesInterpolationSpanMode::Relative
+            ? Max(interpolationOptions.MinSpan, configuredSpan * std::abs(border))
+            : configuredSpan;
+        if (actualSpan <= 0.0) {
+            return CalcHardRightWeight(binFeatures, docCountInBlock, repackedSplit, docId);
+        }
+
+        if (interpolationOptions.Type == EFloatFeaturesInterpolationType::Linear) {
+            const double clampedValue = Min(Max<double>(rawValue, border - actualSpan), border + actualSpan);
+            return (clampedValue - (border - actualSpan)) / (2.0 * actualSpan);
+        }
+        const double slope = 5.0 / actualSpan;
+        return 1.0 / (1.0 + std::exp(-slope * (rawValue - border)));
+    }
+
+    static void CalcTreesBlockedWithInterpolation(
+        const TModelTrees& trees,
+        const TModelTrees::TForApplyData& applyData,
+        const TCPUEvaluatorQuantizedData* quantizedData,
+        size_t docCountInBlock,
+        TCalcerIndexType* __restrict,
+        size_t treeStart,
+        size_t treeEnd,
+        double* __restrict resultsPtr
+    ) {
+        const ui8* __restrict binFeatures = quantizedData->QuantizedData.data();
+        const auto& treeSizes = trees.GetModelTreeData()->GetTreeSizes();
+        const auto& treeStartOffsets = trees.GetModelTreeData()->GetTreeStartOffsets();
+        const auto& treeSplits = trees.GetModelTreeData()->GetTreeSplits();
+        const auto& leafValues = trees.GetModelTreeData()->GetLeafValues();
+        const size_t approxDimension = trees.GetDimensionsCount();
+        double rightWeights[64];
+
+        for (size_t treeId = treeStart; treeId < treeEnd; ++treeId) {
+            const int depth = treeSizes[treeId];
+            Y_ASSERT(depth < 64);
+            const int splitOffset = treeStartOffsets[treeId];
+            const double* __restrict treeLeafPtr = leafValues.data() + applyData.TreeFirstLeafOffsets[treeId];
+            const size_t leafCount = 1ull << depth;
+
+            for (size_t docId = 0; docId < docCountInBlock; ++docId) {
+                for (int currentDepth = 0; currentDepth < depth; ++currentDepth) {
+                    rightWeights[currentDepth] = CalcInterpolatedRightWeight(
+                        trees,
+                        applyData,
+                        quantizedData,
+                        binFeatures,
+                        docCountInBlock,
+                        docId,
+                        treeSplits[splitOffset + currentDepth]
+                    );
+                }
+
+                double* __restrict docResultPtr = resultsPtr + docId * approxDimension;
+
+                TVector<double> leafWeights(leafCount);
+                leafWeights[0] = 1.0;
+                for (int currentDepth = 0; currentDepth < depth; ++currentDepth) {
+                    const double rw = rightWeights[currentDepth];
+                    const double lw = 1.0 - rw;
+                    const size_t currentLeafCount = 1ull << currentDepth;
+                    for (size_t leafIdx = 0; leafIdx < currentLeafCount; ++leafIdx) {
+                        leafWeights[leafIdx + currentLeafCount] = leafWeights[leafIdx] * rw;
+                        leafWeights[leafIdx] *= lw;
+                    }
+                }
+
+                for (size_t leafIdx = 0; leafIdx < leafCount; ++leafIdx) {
+                    const double leafWeight = leafWeights[leafIdx];
+                    if (leafWeight == 0.0) {
+                        continue;
+                    }
+                    const double* __restrict leafValuePtr = treeLeafPtr + leafIdx * approxDimension;
+                    for (size_t dimension = 0; dimension < approxDimension; ++dimension) {
+                        docResultPtr[dimension] += leafWeight * leafValuePtr[dimension];
+                    }
+                }
+            }
+        }
+    }
+
 
     template <bool AreTreesOblivious, bool IsSingleDoc, bool IsSingleClassModel, bool NeedXorMask,
         bool CalcLeafIndexesOnly>
@@ -798,6 +922,10 @@ namespace NCB::NModelEvaluation {
         bool calcIndexesOnly
     ) {
         const bool areTreesOblivious = trees.IsOblivious();
+        if (areTreesOblivious && !calcIndexesOnly && trees.HasEnabledFloatFeaturesInterpolation()) {
+            Y_UNUSED(docCountInBlock);
+            return CalcTreesBlockedWithInterpolation;
+        }
         const bool isSingleDoc = (docCountInBlock == 1);
         const bool isSingleClassModel = (trees.GetDimensionsCount() == 1);
         const bool needXorMask = !trees.GetOneHotFeatures().empty();

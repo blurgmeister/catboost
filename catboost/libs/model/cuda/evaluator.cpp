@@ -54,6 +54,10 @@ namespace NCB::NModelEvaluation {
                 Ctx.GPUModelData.BordersOffsets = TCudaVec<ui32>(bordersOffsets, NCuda::EMemoryType::Device);
                 Ctx.GPUModelData.BordersCount = TCudaVec<ui32>(bordersCount, NCuda::EMemoryType::Device);
                 Ctx.GPUModelData.FlatBordersVector = TCudaVec<float>(flatBordersVec, NCuda::EMemoryType::Device);
+                Ctx.GPUModelData.FloatFeatureInterpolationSpans = TCudaVec<double>(
+                    ApplyData->FloatFeatureInterpolationSpans,
+                    NCuda::EMemoryType::Device
+                );
 
                 Ctx.GPUModelData.TreeSizes = TCudaVec<ui32>(
                     TVector<ui32>(ModelTrees->GetModelTreeData()->GetTreeSizes().begin(), ModelTrees->GetModelTreeData()->GetTreeSizes().end()),
@@ -80,6 +84,13 @@ namespace NCB::NModelEvaluation {
                     NCuda::EMemoryType::Device
                 );
                 Ctx.GPUModelData.Scale = scaleAndBias.Scale;
+                const auto& interpolationOptions = ModelTrees->GetFloatFeaturesInterpolationOptions();
+                Ctx.GPUModelData.InterpolationEnabled = ModelTrees->HasValidFloatFeatureInterpolation();
+                Ctx.GPUModelData.InterpolationUseSigmoid =
+                    interpolationOptions.Type == EFloatFeaturesInterpolationType::Sigmoid;
+                Ctx.GPUModelData.InterpolationUseRelativeSpan =
+                    interpolationOptions.SpanMode == EFloatFeaturesInterpolationSpanMode::Relative;
+                Ctx.GPUModelData.InterpolationMinSpan = interpolationOptions.MinSpan;
 
                 Ctx.Stream = TCudaStream::NewStream();
             }
@@ -301,6 +312,7 @@ namespace NCB::NModelEvaluation {
                 CB_ENSURE(quantizedFeatures != nullptr, "Got null quantizedFeatures");
                 const TCudaQuantizedData* cudaQuantizedFeatures = dynamic_cast<const TCudaQuantizedData*>(quantizedFeatures);
                 CB_ENSURE(cudaQuantizedFeatures != nullptr, "Got improperly typed quantized data");
+                CB_ENSURE(!Ctx.GPUModelData.InterpolationEnabled, "GPU evaluation with interpolation requires raw float features");
                 Ctx.EvalQuantizedData(cudaQuantizedFeatures, treeStart, treeEnd, results, PredictionType);
             }
 

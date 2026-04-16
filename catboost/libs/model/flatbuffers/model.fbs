@@ -19,6 +19,21 @@ struct TRepackedBin {
     SplitIdx: uint8 = 0;
 }
 
+enum EFloatFeaturesInterpolationType : byte {
+    Linear,
+    Sigmoid
+}
+
+enum EFloatFeaturesInterpolationSpanMode : byte {
+    Absolute,
+    Relative
+}
+
+table TFloatFeatureInterpolationConfig {
+    FloatFeatureIndex:uint32;
+    Span:double;
+}
+
 table TModelTrees {
     ApproxDimension:int;
     TreeSplits:[int];
@@ -43,6 +58,11 @@ table TModelTrees {
     MultiBias:[double];
     RepackedBins:[TRepackedBin];
     EmbeddingFeatures:[TEmbeddingFeature];
+    FloatFeaturesInterpolationEnabled:bool = false;
+    FloatFeaturesInterpolationType:EFloatFeaturesInterpolationType = Linear;
+    FloatFeaturesInterpolationSpanMode:EFloatFeaturesInterpolationSpanMode = Absolute;
+    FloatFeaturesInterpolationMinSpan:double = 0;
+    FloatFeatureInterpolationConfigs:[TFloatFeatureInterpolationConfig];
 }
 
 table TModelCore {

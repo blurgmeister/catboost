@@ -52,6 +52,11 @@ static ui32 GetModelFormatDescriptor() {
 
 static const char* CURRENT_CORE_FORMAT_STRING = "FlabuffersModel_v1";
 
+template <typename TEnumTo, typename TEnumFrom>
+static TEnumTo CheckedEnumCast(TEnumFrom value) {
+    return static_cast<TEnumTo>(value);
+}
+
 void OutputModel(const TFullModel& model, IOutputStream* const out) {
     Save(out, model);
 }
@@ -397,6 +402,21 @@ TModelTrees::FBSerialize(TModelPartsCachingSerializer& serializer) const {
     auto fbsNonSymmetricNodeIdToLeafId = builder.CreateVector(data->GetNonSymmetricNodeIdToLeafId().data(), data->GetNonSymmetricNodeIdToLeafId().size());
     auto bias = GetScaleAndBias().GetBiasRef();
     auto fbsBias = builder.CreateVector(bias.data(), bias.size());
+    std::vector<flatbuffers::Offset<NCatBoostFbs::TFloatFeatureInterpolationConfig>> interpolationConfigOffsets;
+    interpolationConfigOffsets.reserve(FloatFeaturesInterpolationOptions.PerFloatFeatureConfig.size());
+    for (const auto& config : FloatFeaturesInterpolationOptions.PerFloatFeatureConfig) {
+        interpolationConfigOffsets.push_back(
+            NCatBoostFbs::CreateTFloatFeatureInterpolationConfig(
+                builder,
+                config.FloatFeatureIndex,
+                config.Span
+            )
+        );
+    }
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<NCatBoostFbs::TFloatFeatureInterpolationConfig>>> fbsInterpolationConfigs;
+    if (!interpolationConfigOffsets.empty()) {
+        fbsInterpolationConfigs = builder.CreateVector(interpolationConfigOffsets);
+    }
     return NCatBoostFbs::CreateTModelTrees(
         builder,
         ApproxDimension,
@@ -417,7 +437,12 @@ TModelTrees::FBSerialize(TModelPartsCachingSerializer& serializer) const {
         0,
         fbsBias,
         fbsRepackedBins,
-        fbsEmbeddingFeaturesOffsets
+        fbsEmbeddingFeaturesOffsets,
+        FloatFeaturesInterpolationOptions.Enabled,
+        CheckedEnumCast<NCatBoostFbs::EFloatFeaturesInterpolationType>(FloatFeaturesInterpolationOptions.Type),
+        CheckedEnumCast<NCatBoostFbs::EFloatFeaturesInterpolationSpanMode>(FloatFeaturesInterpolationOptions.SpanMode),
+        FloatFeaturesInterpolationOptions.MinSpan,
+        fbsInterpolationConfigs
     );
 }
 
@@ -433,6 +458,12 @@ void TModelTrees::ProcessFloatFeatures() {
         if (feature.UsedInModel()) {
             ++ApplyData->UsedFloatFeaturesCount;
             ApplyData->MinimalSufficientFloatFeaturesVectorSize = static_cast<size_t>(feature.Position.Index) + 1;
+        }
+    }
+    ApplyData->FloatFeatureInterpolationSpans.assign(GetNumFloatFeatures(), -1.0);
+    for (const auto& config : FloatFeaturesInterpolationOptions.PerFloatFeatureConfig) {
+        if (config.FloatFeatureIndex < ApplyData->FloatFeatureInterpolationSpans.size()) {
+            ApplyData->FloatFeatureInterpolationSpans[config.FloatFeatureIndex] = config.Span;
         }
     }
 }
@@ -708,6 +739,17 @@ void TModelTrees::SetScaleAndBias(const TScaleAndBias& scaleAndBias) {
     ScaleAndBias = TScaleAndBias(scaleAndBias.Scale, bias);
 }
 
+void TModelTrees::SetFloatFeaturesInterpolationOptions(TFloatFeaturesInterpolationOptions options) {
+    Sort(
+        options.PerFloatFeatureConfig.begin(),
+        options.PerFloatFeatureConfig.end(),
+        [] (const TFloatFeatureInterpolationConfig& lhs, const TFloatFeatureInterpolationConfig& rhs) {
+            return lhs.FloatFeatureIndex < rhs.FloatFeatureIndex;
+        }
+    );
+    FloatFeaturesInterpolationOptions = std::move(options);
+}
+
 void TModelTrees::SetScaleAndBias(const NCatBoostFbs::TModelTrees* fbObj) {
     ApproxDimension = fbObj->ApproxDimension();
     TVector<double> bias;
@@ -738,6 +780,26 @@ void TModelTrees::DeserializeFeatures(const NCatBoostFbs::TModelTrees* fbObj) {
     FBS_ARRAY_DESERIALIZER(OneHotFeatures)
     FBS_ARRAY_DESERIALIZER(CtrFeatures)
 #undef FBS_ARRAY_DESERIALIZER
+}
+
+static TFloatFeaturesInterpolationOptions DeserializeFloatFeaturesInterpolationOptions(
+    const NCatBoostFbs::TModelTrees* fbObj
+) {
+    TFloatFeaturesInterpolationOptions options;
+    options.Enabled = fbObj->FloatFeaturesInterpolationEnabled();
+    options.Type = CheckedEnumCast<EFloatFeaturesInterpolationType>(fbObj->FloatFeaturesInterpolationType());
+    options.SpanMode = CheckedEnumCast<EFloatFeaturesInterpolationSpanMode>(fbObj->FloatFeaturesInterpolationSpanMode());
+    options.MinSpan = fbObj->FloatFeaturesInterpolationMinSpan();
+    if (fbObj->FloatFeatureInterpolationConfigs()) {
+        options.PerFloatFeatureConfig.reserve(fbObj->FloatFeatureInterpolationConfigs()->size());
+        for (const auto* config : *fbObj->FloatFeatureInterpolationConfigs()) {
+            options.PerFloatFeatureConfig.push_back({
+                config->FloatFeatureIndex(),
+                config->Span()
+            });
+        }
+    }
+    return options;
 }
 
 void TModelTrees::FBDeserializeOwning(const NCatBoostFbs::TModelTrees* fbObj) {
@@ -793,6 +855,7 @@ void TModelTrees::FBDeserializeOwning(const NCatBoostFbs::TModelTrees* fbObj) {
     }
 
     DeserializeFeatures(fbObj);
+    SetFloatFeaturesInterpolationOptions(DeserializeFloatFeaturesInterpolationOptions(fbObj));
 }
 
 void TModelTrees::FBDeserializeNonOwning(const NCatBoostFbs::TModelTrees* fbObj) {
@@ -833,6 +896,7 @@ void TModelTrees::FBDeserializeNonOwning(const NCatBoostFbs::TModelTrees* fbObj)
         auto ptr = reinterpret_cast<const TRepackedBin*>(fbObj->RepackedBins()->data());
         RepackedBins = NCB::TMaybeOwningConstArrayHolder<TRepackedBin>::CreateNonOwning(TArrayRef(ptr, fbObj->RepackedBins()->size()));
     }
+    SetFloatFeaturesInterpolationOptions(DeserializeFloatFeaturesInterpolationOptions(fbObj));
 }
 
 TConstArrayRef<int> TSolidModelTree::GetTreeSplits() const {

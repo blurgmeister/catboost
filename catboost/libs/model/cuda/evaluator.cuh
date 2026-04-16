@@ -29,12 +29,17 @@ struct TGPUModelData : public TThrRefBase {
 
     TCudaVec<TCudaEvaluatorLeafType> ModelLeafs;
     TCudaVec<ui32> FloatFeatureForBucketIdx;
+    TCudaVec<double> FloatFeatureInterpolationSpans;
     TVector<bool> UsedInModel;
 
     size_t ApproxDimension = 0;
 
     TCudaVec<double> Bias;
     double Scale = 0.0;
+    bool InterpolationEnabled = false;
+    bool InterpolationUseSigmoid = false;
+    bool InterpolationUseRelativeSpan = false;
+    double InterpolationMinSpan = 0.0;
 };
 
 struct TGPUDataInput {

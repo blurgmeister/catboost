@@ -168,11 +168,96 @@ TTreeIndex __device__ __forceinline__ CalcTreeVals(int curTreeDepth, const TGPUR
     }
 }
 
+__device__ __forceinline__ ui8 GetQuantizedFeatureValueForDocument(
+    const TCudaQuantizationBucket* const __restrict__ quantizedFeatures,
+    ui32 bucketsCount,
+    ui32 bucketIdx,
+    ui32 docId
+) {
+    const ui32 docsPerBlock = WarpSize * ObjectsPerThread;
+    const ui32 blockBy32 = docId / docsPerBlock;
+    const ui32 laneId = docId % WarpSize;
+    const ui32 docGroup = (docId / WarpSize) % ObjectsPerThread;
+    const TCudaQuantizationBucket bins = __ldg(
+        quantizedFeatures + bucketsCount * WarpSize * blockBy32 + bucketIdx * WarpSize + laneId
+    );
+    switch (docGroup) {
+        case 0:
+            return bins.x;
+        case 1:
+            return bins.y;
+        case 2:
+            return bins.z;
+        default:
+            return bins.w;
+    }
+}
+
+__device__ __forceinline__ double CalcHardRightWeightForDocument(
+    const TCudaQuantizationBucket* const __restrict__ quantizedFeatures,
+    ui32 bucketsCount,
+    const TGPURepackedBin& split,
+    ui32 docId
+) {
+    const ui32 bucketIdx = split.FeatureIdx / WarpSize;
+    return GetQuantizedFeatureValueForDocument(quantizedFeatures, bucketsCount, bucketIdx, docId) >= split.FeatureVal ? 1.0 : 0.0;
+}
+
+template <typename TFloatFeatureAccessor>
+__device__ __forceinline__ double CalcInterpolatedRightWeightForDocument(
+    TFloatFeatureAccessor floatAccessor,
+    const TCudaQuantizationBucket* const __restrict__ quantizedFeatures,
+    ui32 bucketsCount,
+    const TGPURepackedBin& split,
+    ui32 docId,
+    const ui32* __restrict__ floatFeatureForBucketIdx,
+    const ui32* __restrict__ bordersOffsets,
+    const float* __restrict__ flatBorders,
+    const double* __restrict__ interpolationSpans,
+    ui32 interpolationSpansCount,
+    bool useSigmoid,
+    bool useRelativeSpan,
+    double minSpan
+) {
+    const ui32 bucketIdx = split.FeatureIdx / WarpSize;
+    const ui32 floatFeatureIdx = __ldg(floatFeatureForBucketIdx + bucketIdx);
+    if (floatFeatureIdx >= interpolationSpansCount) {
+        return CalcHardRightWeightForDocument(quantizedFeatures, bucketsCount, split, docId);
+    }
+
+    const double configuredSpan = __ldg(interpolationSpans + floatFeatureIdx);
+    if (configuredSpan <= 0.0) {
+        return CalcHardRightWeightForDocument(quantizedFeatures, bucketsCount, split, docId);
+    }
+
+    const float rawValue = floatAccessor(floatFeatureIdx, docId);
+    if (isnan(rawValue)) {
+        return CalcHardRightWeightForDocument(quantizedFeatures, bucketsCount, split, docId);
+    }
+
+    const double border = __ldg(flatBorders + __ldg(bordersOffsets + bucketIdx) + split.FeatureVal - 1);
+    const double actualSpan = useRelativeSpan
+        ? fmax(minSpan, configuredSpan * fabs(border))
+        : configuredSpan;
+    if (actualSpan <= 0.0) {
+        return CalcHardRightWeightForDocument(quantizedFeatures, bucketsCount, split, docId);
+    }
+
+    if (!useSigmoid) {
+        const double clampedValue = fmin(fmax(static_cast<double>(rawValue), border - actualSpan), border + actualSpan);
+        return (clampedValue - (border - actualSpan)) / (2.0 * actualSpan);
+    }
+
+    const double slope = 5.0 / actualSpan;
+    return 1.0 / (1.0 + exp(-slope * (static_cast<double>(rawValue) - border)));
+}
+
 __launch_bounds__(BlockWidth, 1)
 __global__ void EvalObliviousTrees(
     const TCudaQuantizationBucket* __restrict__ quantizedFeatures,
     const ui32* __restrict__ treeSizes,
-    const ui32 treeCount,
+    const ui32 treeStart,
+    const ui32 treeEnd,
     const ui32* __restrict__ treeStartOffsets,
     const TGPURepackedBin* __restrict__ repackedBins,
     const ui32* __restrict__ firstLeafOfset,
@@ -188,8 +273,8 @@ __global__ void EvalObliviousTrees(
 
     quantizedFeatures += bucketsCount * WarpSize * blockby32 + threadIdx.x % WarpSize;
 
-    const int firstTreeIdx = TreeSubBlockWidth * ExtTreeBlockWidth * (threadIdx.y + TreeSubBlockWidth * blockIdx.x);
-    const int lastTreeIdx = min(firstTreeIdx + TreeSubBlockWidth * ExtTreeBlockWidth, treeCount);
+    const int firstTreeIdx = treeStart + TreeSubBlockWidth * ExtTreeBlockWidth * (threadIdx.y + TreeSubBlockWidth * blockIdx.x);
+    const int lastTreeIdx = min(firstTreeIdx + TreeSubBlockWidth * ExtTreeBlockWidth, static_cast<int>(treeEnd));
     double4 localResult = { 0 };
 
     if (firstTreeIdx < lastTreeIdx && firstDocForThread < documentCount) {
@@ -242,6 +327,86 @@ __global__ void EvalObliviousTrees(
             results + blockby32 * WarpSize * ObjectsPerThread + threadIdx.x + threadIdx.y * EvalDocBlockSize,
             reduceVals[threadIdx.x + threadIdx.y * EvalDocBlockSize] + reduceVals[threadIdx.x + threadIdx.y * EvalDocBlockSize + 128]
         );
+    }
+}
+
+template <typename TFloatFeatureAccessor>
+__global__ void EvalObliviousTreesWithInterpolation(
+    TFloatFeatureAccessor floatAccessor,
+    const TCudaQuantizationBucket* __restrict__ quantizedFeatures,
+    const ui32* __restrict__ treeSizes,
+    const ui32* __restrict__ treeStartOffsets,
+    const TGPURepackedBin* __restrict__ repackedBins,
+    const ui32* __restrict__ firstLeafOffset,
+    const ui32 bucketsCount,
+    const TCudaEvaluatorLeafType* __restrict__ leafValues,
+    const ui32* __restrict__ floatFeatureForBucketIdx,
+    const ui32* __restrict__ bordersOffsets,
+    const float* __restrict__ flatBorders,
+    const double* __restrict__ interpolationSpans,
+    const ui32 interpolationSpansCount,
+    const bool useSigmoid,
+    const bool useRelativeSpan,
+    const double minSpan,
+    const ui32 treeStart,
+    const ui32 treeEnd,
+    const ui32 documentCount,
+    const ui32 approxDimension,
+    TCudaEvaluatorLeafType* __restrict__ results
+) {
+    const ui32 docId = blockIdx.x * blockDim.x + threadIdx.x;
+    if (docId >= documentCount) {
+        return;
+    }
+
+    TCudaEvaluatorLeafType* docResult = results + docId * approxDimension;
+    for (ui32 treeId = treeStart; treeId < treeEnd; ++treeId) {
+        const int depth = __ldg(treeSizes + treeId);
+        const ui32 splitOffset = __ldg(treeStartOffsets + treeId);
+        const ui32 leafOffset = __ldg(firstLeafOffset + treeId);
+        const ui32 leafCount = 1u << depth;
+        double rightWeights[64];
+
+        for (int currentDepth = 0; currentDepth < depth; ++currentDepth) {
+            rightWeights[currentDepth] = CalcInterpolatedRightWeightForDocument(
+                floatAccessor,
+                quantizedFeatures,
+                bucketsCount,
+                Ldg(repackedBins + splitOffset + currentDepth),
+                docId,
+                floatFeatureForBucketIdx,
+                bordersOffsets,
+                flatBorders,
+                interpolationSpans,
+                interpolationSpansCount,
+                useSigmoid,
+                useRelativeSpan,
+                minSpan
+            );
+        }
+
+        double leafWeights[1024];
+        leafWeights[0] = 1.0;
+        for (int currentDepth = 0; currentDepth < depth; ++currentDepth) {
+            const double rw = rightWeights[currentDepth];
+            const double lw = 1.0 - rw;
+            const ui32 currentLeafCount = 1u << currentDepth;
+            for (ui32 leafIdx = 0; leafIdx < currentLeafCount; ++leafIdx) {
+                leafWeights[leafIdx + currentLeafCount] = leafWeights[leafIdx] * rw;
+                leafWeights[leafIdx] *= lw;
+            }
+        }
+
+        for (ui32 leafIdx = 0; leafIdx < leafCount; ++leafIdx) {
+            const double leafWeight = leafWeights[leafIdx];
+            if (leafWeight == 0.0) {
+                continue;
+            }
+            const TCudaEvaluatorLeafType* leafValuePtr = leafValues + (leafOffset + leafIdx) * approxDimension;
+            for (ui32 dim = 0; dim < approxDimension; ++dim) {
+                docResult[dim] += __ldg(leafValuePtr + dim) * leafWeight;
+            }
+        }
     }
 }
 
@@ -350,14 +515,15 @@ void TGPUCatboostEvaluationContext::EvalQuantizedData(
     ) const {
     const dim3 treeCalcDimBlock(EvalDocBlockSize, TreeSubBlockWidth);
     const dim3 treeCalcDimGrid(
-        NKernel::CeilDivide<unsigned int>(GPUModelData.TreeSizes.Size(), TreeSubBlockWidth * ExtTreeBlockWidth),
+        NKernel::CeilDivide<unsigned int>(treeEnd - treeStart, TreeSubBlockWidth * ExtTreeBlockWidth),
         NKernel::CeilDivide<unsigned int>(data->GetObjectsCount(), EvalDocBlockSize * ObjectsPerThread)
     );
     ClearMemoryAsync(EvalDataCache.ResultsFloatBuf.AsArrayRef(), Stream);
     EvalObliviousTrees<<<treeCalcDimGrid, treeCalcDimBlock, 0, Stream>>> (
         data->BinarizedFeaturesBuffer.Get(),
         GPUModelData.TreeSizes.Get(),
-        GPUModelData.TreeSizes.Size(),
+        treeStart,
+        treeEnd,
         GPUModelData.TreeStartOffsets.Get(),
         GPUModelData.TreeSplits.Get(),
         GPUModelData.TreeFirstLeafOffsets.Get(),
@@ -424,5 +590,79 @@ void TGPUCatboostEvaluationContext::EvalData(
     TCudaQuantizedData quantizedData;
     quantizedData.SetDimensions(GPUModelData.FloatFeatureForBucketIdx.Size(), dataInput.ObjectCount);
     QuantizeData(dataInput, &quantizedData);
-    EvalQuantizedData(&quantizedData, treeStart, treeEnd, result, predictionType);
+    if (!GPUModelData.InterpolationEnabled) {
+        EvalQuantizedData(&quantizedData, treeStart, treeEnd, result, predictionType);
+        return;
+    }
+
+    ClearMemoryAsync(EvalDataCache.ResultsFloatBuf.AsArrayRef(), Stream);
+    const ui32 blockSize = 256;
+    const ui32 gridSize = NKernel::CeilDivide<ui32>(dataInput.ObjectCount, blockSize);
+    if (dataInput.FloatFeatureLayout == TGPUDataInput::EFeatureLayout::ColumnFirst) {
+        TFeatureAccessor<float, TGPUDataInput::EFeatureLayout::ColumnFirst> floatFeatureAccessor;
+        floatFeatureAccessor.FeatureCount = dataInput.FloatFeatureCount;
+        floatFeatureAccessor.Stride = dataInput.Stride;
+        floatFeatureAccessor.ObjectCount = dataInput.ObjectCount;
+        floatFeatureAccessor.FeaturesPtr = dataInput.FlatFloatsVector.data();
+        EvalObliviousTreesWithInterpolation<<<gridSize, blockSize, 0, Stream>>>(
+            floatFeatureAccessor,
+            quantizedData.BinarizedFeaturesBuffer.Get(),
+            GPUModelData.TreeSizes.Get(),
+            GPUModelData.TreeStartOffsets.Get(),
+            GPUModelData.TreeSplits.Get(),
+            GPUModelData.TreeFirstLeafOffsets.Get(),
+            GPUModelData.FloatFeatureForBucketIdx.Size(),
+            GPUModelData.ModelLeafs.Get(),
+            GPUModelData.FloatFeatureForBucketIdx.Get(),
+            GPUModelData.BordersOffsets.Get(),
+            GPUModelData.FlatBordersVector.Get(),
+            GPUModelData.FloatFeatureInterpolationSpans.Get(),
+            GPUModelData.FloatFeatureInterpolationSpans.Size(),
+            GPUModelData.InterpolationUseSigmoid,
+            GPUModelData.InterpolationUseRelativeSpan,
+            GPUModelData.InterpolationMinSpan,
+            treeStart,
+            treeEnd,
+            dataInput.ObjectCount,
+            GPUModelData.ApproxDimension,
+            EvalDataCache.ResultsFloatBuf.Get()
+        );
+    } else {
+        TFeatureAccessor<float, TGPUDataInput::EFeatureLayout::RowFirst> floatFeatureAccessor;
+        floatFeatureAccessor.FeatureCount = dataInput.FloatFeatureCount;
+        floatFeatureAccessor.Stride = dataInput.Stride;
+        floatFeatureAccessor.ObjectCount = dataInput.ObjectCount;
+        floatFeatureAccessor.FeaturesPtr = dataInput.FlatFloatsVector.data();
+        EvalObliviousTreesWithInterpolation<<<gridSize, blockSize, 0, Stream>>>(
+            floatFeatureAccessor,
+            quantizedData.BinarizedFeaturesBuffer.Get(),
+            GPUModelData.TreeSizes.Get(),
+            GPUModelData.TreeStartOffsets.Get(),
+            GPUModelData.TreeSplits.Get(),
+            GPUModelData.TreeFirstLeafOffsets.Get(),
+            GPUModelData.FloatFeatureForBucketIdx.Size(),
+            GPUModelData.ModelLeafs.Get(),
+            GPUModelData.FloatFeatureForBucketIdx.Get(),
+            GPUModelData.BordersOffsets.Get(),
+            GPUModelData.FlatBordersVector.Get(),
+            GPUModelData.FloatFeatureInterpolationSpans.Get(),
+            GPUModelData.FloatFeatureInterpolationSpans.Size(),
+            GPUModelData.InterpolationUseSigmoid,
+            GPUModelData.InterpolationUseRelativeSpan,
+            GPUModelData.InterpolationMinSpan,
+            treeStart,
+            treeEnd,
+            dataInput.ObjectCount,
+            GPUModelData.ApproxDimension,
+            EvalDataCache.ResultsFloatBuf.Get()
+        );
+    }
+
+    if (GPUModelData.ApproxDimension == 1) {
+        ProcessResults<true>(*this, predictionType, dataInput.ObjectCount);
+    } else {
+        ProcessResults<false>(*this, predictionType, dataInput.ObjectCount);
+    }
+
+    NCuda::MemoryCopyAsync<double>(EvalDataCache.ResultsDoubleBuf.Slice(0, dataInput.ObjectCount * GPUModelData.ApproxDimension), result, Stream);
 }

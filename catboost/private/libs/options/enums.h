@@ -89,6 +89,16 @@ enum class EModelShrinkMode {
     Decreasing
 };
 
+enum class EFloatFeaturesInterpolationType {
+    Linear,
+    Sigmoid
+};
+
+enum class EFloatFeaturesInterpolationSpanMode {
+    Absolute,
+    Relative
+};
+
 enum class EBootstrapType {
     Poisson,
     Bayesian,

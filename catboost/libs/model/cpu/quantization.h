@@ -28,20 +28,52 @@ namespace NCB::NModelEvaluation {
         size_t BlocksCount = 0;
         size_t BlockStride = 0;
         TMaybeOwningArrayHolder<ui8> QuantizedData;
+        TMaybeOwningArrayHolder<float> RawFloatData;
+        size_t RawFloatFeatureCount = 0;
+        size_t RawFloatBlockStride = 0;
 
         TCPUEvaluatorQuantizedData ExtractBlock(size_t blockId) const {
             TCPUEvaluatorQuantizedData result;
             result.BlocksCount = 1;
             size_t width = QuantizedData.GetSize() / ObjectsCount;
+            const size_t blockStart = FORMULA_EVALUATION_BLOCK_SIZE * blockId;
 
             result.ObjectsCount = Min(
-                FORMULA_EVALUATION_BLOCK_SIZE, ObjectsCount - FORMULA_EVALUATION_BLOCK_SIZE * (blockId));
+                FORMULA_EVALUATION_BLOCK_SIZE, ObjectsCount - blockStart);
             result.BlockStride = width * result.ObjectsCount;
 
             result.QuantizedData = QuantizedData.Slice(
                 BlockStride * blockId,
                 result.BlockStride
             );
+            if (RawFloatFeatureCount != 0) {
+                result.RawFloatFeatureCount = RawFloatFeatureCount;
+                const size_t rawFloatDataSize = RawFloatData.GetSize();
+                const size_t blockMajorRawFloatSize = RawFloatBlockStride * RawFloatFeatureCount * BlocksCount;
+                const size_t featureMajorRawFloatSize = RawFloatBlockStride * RawFloatFeatureCount;
+                if (rawFloatDataSize == blockMajorRawFloatSize) {
+                    result.RawFloatBlockStride = RawFloatBlockStride;
+                    result.RawFloatData = RawFloatData.Slice(
+                        RawFloatBlockStride * RawFloatFeatureCount * blockId,
+                        RawFloatBlockStride * RawFloatFeatureCount
+                    );
+                } else {
+                    CB_ENSURE(
+                        rawFloatDataSize == featureMajorRawFloatSize,
+                        "Unexpected raw float data layout"
+                    );
+                    TVector<float> blockRawFloats(result.ObjectsCount * RawFloatFeatureCount);
+                    auto srcRawFloatData = *RawFloatData;
+                    for (size_t featureIdx = 0; featureIdx < RawFloatFeatureCount; ++featureIdx) {
+                        auto srcFeatureBegin = srcRawFloatData.begin() + featureIdx * RawFloatBlockStride + blockStart;
+                        auto srcFeatureEnd = srcFeatureBegin + result.ObjectsCount;
+                        auto dstFeatureBegin = blockRawFloats.begin() + featureIdx * result.ObjectsCount;
+                        std::copy(srcFeatureBegin, srcFeatureEnd, dstFeatureBegin);
+                    }
+                    result.RawFloatBlockStride = result.ObjectsCount;
+                    result.RawFloatData = TMaybeOwningArrayHolder<float>::CreateOwning(std::move(blockRawFloats));
+                }
+            }
             return result;
         }
 

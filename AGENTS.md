@@ -157,3 +157,86 @@ Record the answer to each of these in code comments or follow-up docs once decid
 - Keep changes incremental and reviewable.
 - Prefer evaluator unit tests with tiny synthetic oblivious trees over large end-to-end experiments for first-pass validation.
 - If a behavior choice is ambiguous, document the assumption in the PR or commit message and keep the implementation narrow.
+
+## Future Work Note: Per-Feature Interpolation Type And Span Mode
+
+The current implementation supports:
+
+- per-feature interpolation span values
+- one global interpolation type for the whole model
+- one global interpolation span mode for the whole model
+
+Future work should extend the backend to allow choosing interpolation type and span mode per float feature as well, not just per model.
+
+This does not look like a small evaluator-only patch. The likely scope includes:
+
+- options layer changes in `catboost/private/libs/options` so the configuration can carry per-feature interpolation type and per-feature interpolation span mode alongside per-feature spans
+- model runtime structure changes in `catboost/libs/model/model.h` so `TFloatFeatureInterpolationConfig` stores feature-specific type and span-mode fields instead of relying on only global `Type` and `SpanMode`
+- serialization format changes in `catboost/libs/model/model.cpp` and `catboost/libs/model/flatbuffers/model.fbs` so the model artifact persists these per-feature settings while keeping old models readable
+- CPU evaluator changes in `catboost/libs/model/cpu/evaluator_impl.cpp` so each float split uses the interpolation type and span mode associated with its float feature
+- GPU evaluator changes in `catboost/libs/model/cuda` because the current GPU path derives simple global flags such as sigmoid vs linear and relative vs absolute; that logic would need per-feature lookups instead
+- Python parameter plumbing in `catboost/python-package/catboost/core.py` and related wrappers so the user-facing API can express per-feature type/mode in a validated format
+- test updates across model serialization tests, evaluator unit tests, Python option round-trip tests, and CPU/GPU parity tests
+
+One reasonable design direction would be to extend the per-feature interpolation config object to carry:
+
+- float feature index
+- span
+- interpolation type
+- interpolation span mode
+
+If this is implemented, preserve backward compatibility by:
+
+- continuing to accept the existing global `interpolation_type` and `interpolation_span_mode` settings
+- defining how global settings interact with per-feature overrides
+- keeping old model artifacts and old Python call patterns valid
+
+## Future work: filtering data and interpolating only what's needed
+
+We know that only data point within the span of each feature's split point in each tree need interpolation, those outside that range can be treated as normal (with binary radix and fast lookup). 
+We should implement a filtering procedure to only route data points that need interpolating, rather than interpolating everything all the time. Furthermore, any trees that have no interpolated features should simply proceed through the traditional route as well.  
+
+## Phase 2 Implementation Progress
+
+• Phase 2 is not complete yet. The core CPU inference path is done, and GPU source changes have now been started, but these pieces are still left:
+
+  1. Build the Python extension / wheel and run Python tests against the new params.
+     The source plumbing is in, but it still needs real package-level verification.
+  2. GPU inference parity.
+     GPU evaluator source changes have now been added under `catboost/libs/model/cuda`, including:
+      - interpolation settings copied into GPU model state
+      - a separate interpolation-aware CUDA evaluation kernel for raw-float input paths
+      - GPU unit-test additions for absolute-span and relative-span-with-min-span cases
+      Remaining GPU work:
+      - compile and run the CUDA build
+      - verify numerical parity against CPU interpolation on supported cases
+      - decide whether/how GPU quantized-input evaluation should support interpolation beyond the current explicit rejection
+  3. Export behavior decision and implementation.
+     JSON/C++/Python/CoreML/ONNX/PMML export currently compiles, but interpolation-specific handling has not been added
+     or explicitly rejected.
+  4. CLI exposure check.
+     The options layer and plain options mapping are in place, but the command-line training surface should be verified
+     end to end.
+  5. Wider testing.
+     We’ve validated:
+      - native model_ut build
+      - interpolation evaluator tests
+      - full TObliviousTreeModel
+      - Python source syntax
+        Still missing:
+      - Python package tests with built extension
+      - compiled/run GPU tests
+      - export tests
+      - maybe a dedicated old-model compatibility check
+
+  Current status of completed plan items:
+
+  - configuration types and validation: done
+  - model persistence for inference-time settings: done
+  - CPU oblivious-tree interpolation at inference: done
+  - focused evaluator tests: done
+  - Python parameter plumbing: source-level done
+  - compile-fix pass for model_ut: done
+  - GPU evaluator source implementation: started, not yet compiled/validated
+
+  So the main remaining work is GPU build/validation plus package/export/CLI verification.

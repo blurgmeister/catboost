@@ -59,6 +59,11 @@ namespace NCatboostOptions {
         TCpuOnlyOption<TMap<ui32, int>> MonotoneConstraints;
         TCpuOnlyOption <bool> DevLeafwiseApproxes;
         TOption<TFeaturePenaltiesOptions> FeaturePenalties;
+        TOption<bool> FloatFeaturesInterpolationEnabled;
+        TOption<EFloatFeaturesInterpolationType> FloatFeaturesInterpolationType;
+        TOption<EFloatFeaturesInterpolationSpanMode> FloatFeaturesInterpolationSpanMode;
+        TOption<TMap<ui32, double>> FloatFeaturesInterpolationSpanPerFeature;
+        TOption<double> FloatFeaturesInterpolationMinSpan;
 
     private:
         TOption<ETaskType> TaskType;

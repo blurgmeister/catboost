@@ -1221,6 +1221,143 @@ def test_predict_and_predict_proba_on_single_object(problem):
             assert np.array_equal(pred_probabilities[test_object_idx], model.predict_proba(test_data.values[test_object_idx]))
 
 
+def test_predict_on_reused_mutable_input_matches_fresh_copy_with_interpolation():
+    feature_names = ['MedInc', 'AveRooms']
+    X_df = pd.DataFrame(
+        {
+            'MedInc': [
+                8.3252, 8.3014, 7.2574, 5.6431, 3.8462, 4.0368, 3.6591, 3.12,
+                2.0804, 3.6912, 3.2031, 3.2705, 3.075, 2.6736, 1.9167, 2.125,
+                2.775, 2.1202, 1.9911, 2.6033, 1.3578, 1.7135, 1.725, 2.1806,
+                2.6, 2.4038, 2.4597, 1.808, 1.6424, 1.6875, 1.9274, 1.9615
+            ],
+            'AveRooms': [
+                6.984126984126984, 6.238137082601054, 8.288135593220339, 5.817351598173516,
+                6.281853281853282, 4.761658031088083, 4.9319066147859925, 4.797527047913447,
+                4.294117647058823, 4.970588235294118, 5.477611940298507, 4.772479564032698,
+                5.322649572649572, 4.0, 4.262903225806451, 4.242424242424242,
+                5.9395770392749245, 4.052805280528053, 5.343675417661098, 5.465454545454546,
+                4.524096385542169, 4.478142076502732, 5.096234309623431, 5.193846153846154,
+                5.270142180094787, 4.495798319327731, 4.728033472803348, 4.780856423173804,
+                4.40169133192389, 4.703225806451613, 5.068783068783069, 4.882086167800454
+            ]
+        },
+        columns=feature_names
+    )
+    y = np.array([
+        4.526, 3.585, 3.521, 3.413, 3.422, 2.697, 2.992, 2.414,
+        2.267, 2.611, 2.815, 2.418, 2.135, 1.913, 1.592, 1.4,
+        1.525, 1.555, 1.587, 1.629, 1.475, 1.598, 1.139, 0.997,
+        1.326, 1.075, 0.938, 1.055, 1.089, 1.32, 1.223, 1.152
+    ], dtype=np.float32)
+
+    model = CatBoostRegressor(
+        iterations=8,
+        depth=1,
+        loss_function='RMSE',
+        learning_rate=0.3,
+        bootstrap_type='No',
+        random_strength=0.0,
+        random_seed=0,
+        thread_count=1,
+        verbose=False,
+        interpolation_enabled=True,
+        interpolation_type='Linear',
+        interpolation_span_mode='Absolute',
+        interpolation_min_span=0.0,
+        interpolation_span_per_float_feature={0: 0.5}
+    )
+    model.fit(X_df, y)
+
+    grid = np.linspace(X_df['MedInc'].quantile(0.05), X_df['MedInc'].quantile(0.95), 12)
+
+    fresh_df_predictions = []
+    for value in grid:
+        X_eval = X_df.copy()
+        X_eval['MedInc'] = value
+        fresh_df_predictions.append(np.ravel(model.predict(X_eval, prediction_type='RawFormulaVal')))
+    fresh_df_predictions = np.array(fresh_df_predictions).T
+
+    reused_df_predictions = []
+    X_eval = X_df.copy()
+    for value in grid:
+        X_eval.iloc[:, X_df.columns.get_loc('MedInc')] = value
+        reused_df_predictions.append(np.ravel(model.predict(X_eval, prediction_type='RawFormulaVal')))
+    reused_df_predictions = np.array(reused_df_predictions).T
+
+    np.testing.assert_allclose(reused_df_predictions, fresh_df_predictions, rtol=1e-9, atol=1e-9)
+
+    X_np = X_df.to_numpy(copy=True)
+
+    fresh_np_predictions = []
+    for value in grid:
+        X_eval = X_np.copy()
+        X_eval[:, 0] = value
+        fresh_np_predictions.append(np.ravel(model.predict(X_eval, prediction_type='RawFormulaVal')))
+    fresh_np_predictions = np.array(fresh_np_predictions).T
+
+    reused_np_predictions = []
+    X_eval = X_np.copy()
+    for value in grid:
+        X_eval[:, 0] = value
+        reused_np_predictions.append(np.ravel(model.predict(X_eval, prediction_type='RawFormulaVal')))
+    reused_np_predictions = np.array(reused_np_predictions).T
+
+    np.testing.assert_allclose(reused_np_predictions, fresh_np_predictions, rtol=1e-9, atol=1e-9)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason='Interpolation-enabled predict is inconsistent with sklearn brute partial_dependence on reused mutable inputs'
+)
+def test_partial_dependence_matches_manual_bruteforce_with_interpolation():
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame(
+        {
+            'f0': rng.normal(size=160),
+            'f1': rng.normal(size=160),
+            'f2': rng.normal(size=160),
+        }
+    )
+    y = 2.0 * X['f0'] - 0.5 * X['f1'] + 0.2 * rng.normal(size=160)
+
+    model = CatBoostRegressor(
+        iterations=8,
+        depth=1,
+        loss_function='RMSE',
+        learning_rate=0.3,
+        bootstrap_type='No',
+        random_strength=0.0,
+        random_seed=0,
+        thread_count=1,
+        verbose=False,
+        interpolation_enabled=True,
+        interpolation_type='Linear',
+        interpolation_span_mode='Absolute',
+        interpolation_min_span=0.0,
+        interpolation_span_per_float_feature={0: 0.5}
+    )
+    model.fit(X, y)
+
+    from sklearn.inspection import partial_dependence
+
+    pd_results = partial_dependence(model, X, ['f0'], kind='both', grid_resolution=12)
+    ice_predictions = pd_results['individual'][0]
+    pdp_predictions = pd_results['average'][0]
+    grid_values = pd_results['grid_values'][0]
+
+    manual_predictions = []
+    for value in grid_values:
+        X_eval = X.copy()
+        X_eval['f0'] = value
+        manual_predictions.append(np.ravel(model.predict(X_eval, prediction_type='RawFormulaVal')))
+    manual_predictions = np.array(manual_predictions).T
+    manual_pdp = manual_predictions.mean(axis=0)
+
+    np.testing.assert_allclose(ice_predictions, manual_predictions, rtol=1e-9, atol=1e-9)
+    np.testing.assert_allclose(pdp_predictions, manual_pdp, rtol=1e-9, atol=1e-9)
+
+
 @pytest.mark.parametrize(
     'problem,prediction_type,feature_types',
     [
@@ -8438,6 +8575,52 @@ def test_get_all_params():
         json.dump(options, f, indent=4, sort_keys=True)
 
     return local_canonical_file(options_file)
+
+
+@pytest.mark.parametrize('model_cls', [CatBoostClassifier, CatBoostRegressor, CatBoostRanker])
+def test_interpolation_options_are_exposed_in_python_init(model_cls):
+    model = model_cls(
+        interpolation_enabled=True,
+        interpolation_type='Linear',
+        interpolation_span_mode='Absolute',
+        interpolation_span_per_float_feature={0: 0.5, 2: 1.25},
+        interpolation_min_span=0.1
+    )
+
+    params = model.get_params()
+
+    assert params['interpolation_enabled'] is True
+    assert params['interpolation_type'] == 'Linear'
+    assert params['interpolation_span_mode'] == 'Absolute'
+    assert params['interpolation_span_per_float_feature'] == {0: 0.5, 2: 1.25}
+    assert params['interpolation_min_span'] == 0.1
+
+
+def test_interpolation_options_roundtrip_to_training_params():
+    train_pool = Pool(
+        [[0.0], [1.0], [2.0], [3.0]],
+        label=[0.0, 1.0, 2.0, 3.0]
+    )
+
+    model = CatBoostRegressor(
+        iterations=2,
+        depth=2,
+        loss_function='RMSE',
+        verbose=False,
+        interpolation_enabled=True,
+        interpolation_type='Sigmoid',
+        interpolation_span_mode='Relative',
+        interpolation_span_per_float_feature={0: 0.2},
+        interpolation_min_span=0.05
+    )
+    model.fit(train_pool)
+
+    params = model.get_all_params()
+    assert params['interpolation_enabled'] is True
+    assert params['interpolation_type'] == 'Sigmoid'
+    assert params['interpolation_span_mode'] == 'Relative'
+    assert params['interpolation_span_per_float_feature'] == {'0': 0.2}
+    assert params['interpolation_min_span'] == 0.05
 
 
 @pytest.mark.parametrize('metric', ['MAE', 'RMSE', 'CrossEntropy', 'AUC'])

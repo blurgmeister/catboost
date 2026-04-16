@@ -129,6 +129,13 @@ namespace NCB::NModelEvaluation {
             estimatedFeaturesNum += embeddingProcessingCollection->TotalNumberOfOutputFeatures();
         }
         TVector<float> estimatedFeatures(estimatedFeaturesNum * blockSize);
+        TVector<float> rawFloatFeatures;
+        if (trees.HasEnabledFloatFeaturesInterpolation()) {
+            rawFloatFeatures.yresize(applyData->MinimalSufficientFloatFeaturesVectorSize * blockSize);
+            quantizedData.RawFloatData = NCB::TMaybeOwningArrayHolder<float>::CreateOwning(std::move(rawFloatFeatures));
+            quantizedData.RawFloatFeatureCount = applyData->MinimalSufficientFloatFeaturesVectorSize;
+            quantizedData.RawFloatBlockStride = blockSize;
+        }
 
         for (size_t blockStart = 0; blockStart < docCount; blockStart += blockSize) {
             const auto docCountInBlock = Min(blockSize, docCount - blockStart);
@@ -150,6 +157,19 @@ namespace NCB::NModelEvaluation {
                 estimatedFeatures,
                 featureInfo
             );
+            if (trees.HasEnabledFloatFeaturesInterpolation()) {
+                auto rawFloatData = *quantizedData.RawFloatData;
+                for (const auto& floatFeature : trees.GetFloatFeatures()) {
+                    if (!floatFeature.UsedInModel()) {
+                        continue;
+                    }
+                    const size_t featureIdx = static_cast<size_t>(floatFeature.Position.Index);
+                    for (size_t docId = 0; docId < docCountInBlock; ++docId) {
+                        rawFloatData[featureIdx * blockSize + docId] =
+                            floatFeatureAccessor(floatFeature.Position, blockStart + docId);
+                    }
+                }
+            }
             callback(docCountInBlock, &quantizedData);
         }
     }

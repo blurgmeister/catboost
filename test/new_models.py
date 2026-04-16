@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 import numpy as np
-import xgboost as xgb
+import catboost as cb
 import matplotlib.pyplot as plt
 from sklearn.inspection import partial_dependence
 from sklearn.model_selection import train_test_split
@@ -20,16 +20,18 @@ def create_baseline_plots():
             "name": "regression",
             "data_path": "/workspaces/test_output/regression/california_housing.csv",
             "output_dir": "/workspaces/test_output/regression/new_code/",
-            "model_class": xgb.XGBRegressor,
+            "model_class": cb.CatBoostRegressor,
             "params": {
-                "objective": "count:poisson", 
-                "random_state": random_seed,
-                "interpolation_method": "linear",
-                "interpolation_dict": {"AveBedrms" : 0.1, "AveOccup" : 0.33 ,
-                                       "AveRooms" : 0.25, "HouseAge" : 0.33,
-                                       "Latitude" : 2/34, "Longitude" : 2/120,
-                                       "MedInc" : 0.5, "Population" : 1},
-                "tree_method": "hist",
+                "loss_function": "Poisson", 
+                "random_seed": random_seed,
+                "interpolation_enabled": True,
+                "interpolation_type": "Linear",
+                "interpolation_span_mode": "Relative",
+                "interpolation_span_per_float_feature": {"AveBedrms" : 0.05, "AveOccup" : 0.2 ,
+                                                         "AveRooms" : 0.16, "HouseAge" : 0.25,
+                                                         "Latitude" : 1/34, "Longitude" : 1/120,
+                                                         "MedInc" : 0.25, "Population" : 0.25},
+
                 "monotone_constraints": {"AveBedrms": 1, "AveOccup": -1, "HouseAge": 1,
                                           "Latitude": -1, "Longitude": -1, "MedInc": 1,
                                           "Population": 1}
@@ -39,18 +41,20 @@ def create_baseline_plots():
             "name": "classification",
             "data_path": "/workspaces/test_output/classification/breast_cancer.csv",
             "output_dir": "/workspaces/test_output/classification/new_code/",
-            "model_class": xgb.XGBClassifier,
+            "model_class": cb.CatBoostClassifier,
             "params": {
-                "objective": "binary:logistic", 
-                "random_state": random_seed,
-                "interpolation_method": "linear",
-                "interpolation_dict": {"area error" : 0.25, "mean concave points" : 0.5,
-                                       "mean texture" : 0.2, "perimeter error" : 0.3,
-                                       "radius error" : 1/3, "worst area" : 0.5,
-                                       "worst concave points" : 0.5, "worst concavity" : 1,
-                                       "worst perimeter" : 0.5, "worst radius" : 0.25,
-                                       "worst texture" : 0.3, "mean fractal dimension" : 0.025/0.65},
-                "tree_method": "hist",
+                "loss_function": "Logloss", 
+                "random_seed": random_seed,
+                "interpolation_enabled": True,
+                "interpolation_type": "Linear",
+                "interpolation_span_mode": "Relative",
+                "interpolation_span_per_float_feature": {"area error" : 0.25, "mean concave points" : 0.5,
+                                                         "mean texture" : 0.2, "perimeter error" : 0.3,
+                                                         "radius error" : 1/3, "worst area" : 0.5,
+                                                         "worst concave points" : 0.5, "worst concavity" : 1,
+                                                         "worst perimeter" : 0.5, "worst radius" : 0.25,
+                                                         "worst texture" : 0.3, "mean fractal dimension" : 0.025/0.65},
+
                 "monotone_constraints": {"mean concave points" : -1, "mean fractal dimension": 1,
                                        "perimeter error" : -1,
                                        "radius error" : -1, "worst area" : -1,
@@ -78,15 +82,15 @@ def create_baseline_plots():
         for depth in depths:
             print(f"  Training model with depth {depth}...")
             params = task["params"].copy()
+            params["interpolation_span_per_float_feature"] = {
+                X.columns.get_loc(feature_name): span
+                for feature_name, span in params["interpolation_span_per_float_feature"].items()
+            }
             params["max_depth"] = depth
-            params["early_stopping_rounds"] = 25
             params["n_estimators"] = 1000 # Increase estimators to allow early stopping to work
             
-            # Apply 0.5 interpolation span for each feature
-            # params["interpolation_dict"] = {f: 0.5 for f in X.columns}
-            
             model = task["model_class"](**params)
-            model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
+            model.fit(X_train, y_train, eval_set=[(X_val, y_val)], early_stopping_rounds=25, verbose=False)
 
             # Get top N features by importance
             importances = model.feature_importances_

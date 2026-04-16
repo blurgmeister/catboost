@@ -68,6 +68,25 @@ namespace {
                         ctrs,
                         estimatedFeatures
                 );
+                if (Model.ModelTrees->HasEnabledFloatFeaturesInterpolation()) {
+                    ResultCpu->RawFloatData = TMaybeOwningArrayHolder<float>::CreateOwning(
+                        TVector<float>(applyData->MinimalSufficientFloatFeaturesVectorSize * docCount)
+                    );
+                    ResultCpu->RawFloatFeatureCount = applyData->MinimalSufficientFloatFeaturesVectorSize;
+                    ResultCpu->RawFloatBlockStride = docCount;
+
+                    auto rawFloatData = *ResultCpu->RawFloatData;
+                    for (const auto& floatFeature : Model.ModelTrees->GetFloatFeatures()) {
+                        if (!floatFeature.UsedInModel()) {
+                            continue;
+                        }
+                        const size_t featureIdx = static_cast<size_t>(floatFeature.Position.Index);
+                        for (size_t docId = 0; docId < docCount; ++docId) {
+                            rawFloatData[featureIdx * docCount + docId] =
+                                rawFeatureAccessor.GetFloatAccessor()(floatFeature.Position, docId);
+                        }
+                    }
+                }
             } else {
                 #ifdef HAVE_CUDA
 

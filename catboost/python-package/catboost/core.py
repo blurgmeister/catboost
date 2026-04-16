@@ -2446,6 +2446,12 @@ def _check_param_types(params):
     _cast_value_to_list_of_strings(params, 'custom_loss')
     _cast_value_to_list_of_strings(params, 'custom_metric')
     _cast_value_to_list_of_strings(params, 'per_float_feature_quantization')
+    if 'interpolation_span_per_float_feature' in params:
+        if not isinstance(params['interpolation_span_per_float_feature'], (Mapping, MutableMapping)):
+            raise CatBoostError(
+                "Invalid `interpolation_span_per_float_feature` type={} : must be dict-like mapping of float feature index to span."
+                .format(type(params['interpolation_span_per_float_feature']))
+            )
     if 'monotone_constraints' in params:
         if not isinstance(params['monotone_constraints'], STRING_TYPES + ARRAY_TYPES + (dict,)):
             raise CatBoostError(
@@ -4883,6 +4889,23 @@ class CatBoostClassifier(CatBoost):
         Example 2: ['0:border_count=1024', '1:border_count=1024', ...] means that two first features have 1024 borders.
         Example 3: ['0:nan_mode=Forbidden,border_count=32,border_type=GreedyLogSum',
                     '1:nan_mode=Forbidden,border_count=32,border_type=GreedyLogSum'] - defines more quantization properties for first two features.
+    interpolation_enabled : bool, [default=False]
+        Enable float-feature interpolation at inference time for symmetric trees.
+    interpolation_type : string, [default='Linear']
+        Interpolation shape for smoothed float splits.
+        Possible values:
+            - 'Linear'
+            - 'Sigmoid'
+    interpolation_span_mode : string, [default='Absolute']
+        Interpretation mode for interpolation spans.
+        Possible values:
+            - 'Absolute'
+            - 'Relative'
+    interpolation_span_per_float_feature : dict, [default=None]
+        Mapping from flat feature index to interpolation span for float features.
+        Example: {0: 0.5, 3: 1.0}
+    interpolation_min_span : float, [default=0]
+        Minimum span used when interpolation_span_mode='Relative'.
     input_borders : string or os.PathLike, [default=None]
         input file with borders used in numeric features binarization.
     output_borders : string, [default=None]
@@ -5313,6 +5336,11 @@ class CatBoostClassifier(CatBoost):
         border_count=None,
         feature_border_type=None,
         per_float_feature_quantization=None,
+        interpolation_enabled=None,
+        interpolation_type=None,
+        interpolation_span_mode=None,
+        interpolation_span_per_float_feature=None,
+        interpolation_min_span=None,
         input_borders=None,
         output_borders=None,
         fold_permutation_block=None,
@@ -5955,6 +5983,11 @@ class CatBoostRegressor(CatBoost):
         border_count=None,
         feature_border_type=None,
         per_float_feature_quantization=None,
+        interpolation_enabled=None,
+        interpolation_type=None,
+        interpolation_span_mode=None,
+        interpolation_span_per_float_feature=None,
+        interpolation_min_span=None,
         input_borders=None,
         output_borders=None,
         fold_permutation_block=None,
@@ -6366,6 +6399,11 @@ class CatBoostRanker(CatBoost):
         border_count=None,
         feature_border_type=None,
         per_float_feature_quantization=None,
+        interpolation_enabled=None,
+        interpolation_type=None,
+        interpolation_span_mode=None,
+        interpolation_span_per_float_feature=None,
+        interpolation_min_span=None,
         input_borders=None,
         output_borders=None,
         fold_permutation_block=None,

@@ -30,6 +30,56 @@
 namespace {
     using namespace NCB;
 
+    static TFloatFeaturesInterpolationOptions BuildFloatFeaturesInterpolationOptions(
+        const NCatboostOptions::TCatBoostOptions& options,
+        const TModelTrees& modelTrees,
+        const TObjectsDataProvider* learnObjectsData
+    ) {
+        TFloatFeaturesInterpolationOptions interpolationOptions;
+        const auto& treeOptions = options.ObliviousTreeOptions.Get();
+        interpolationOptions.Enabled = treeOptions.FloatFeaturesInterpolationEnabled.Get();
+        interpolationOptions.Type = treeOptions.FloatFeaturesInterpolationType.Get();
+        interpolationOptions.SpanMode = treeOptions.FloatFeaturesInterpolationSpanMode.Get();
+        interpolationOptions.MinSpan = treeOptions.FloatFeaturesInterpolationMinSpan.Get();
+
+        if (!interpolationOptions.Enabled) {
+            return interpolationOptions;
+        }
+
+        THashSet<ui32> usedFloatFeatures;
+        for (const auto& feature : modelTrees.GetFloatFeatures()) {
+            if (feature.UsedInModel()) {
+                usedFloatFeatures.insert(static_cast<ui32>(feature.Position.Index));
+            }
+        }
+
+        TMaybe<TFeaturesLayout> modelFeaturesLayout;
+        const auto* featuresLayout = learnObjectsData ? learnObjectsData->GetFeaturesLayout().Get() : nullptr;
+        if (!featuresLayout) {
+            modelFeaturesLayout.ConstructInPlace(
+                modelTrees.GetFloatFeatures(),
+                modelTrees.GetCatFeatures(),
+                modelTrees.GetTextFeatures(),
+                modelTrees.GetEmbeddingFeatures()
+            );
+            featuresLayout = modelFeaturesLayout.Get();
+        }
+        for (const auto& [flatFeatureIdx, span] : treeOptions.FloatFeaturesInterpolationSpanPerFeature.Get()) {
+            ui32 internalFloatFeatureIdx = flatFeatureIdx;
+            if (featuresLayout) {
+                if (!featuresLayout->IsCorrectExternalFeatureIdxAndType(flatFeatureIdx, EFeatureType::Float)) {
+                    continue;
+                }
+                internalFloatFeatureIdx = *featuresLayout->GetInternalFeatureIdx<EFeatureType::Float>(flatFeatureIdx);
+            }
+            if (usedFloatFeatures.contains(internalFloatFeatureIdx)) {
+                interpolationOptions.PerFloatFeatureConfig.push_back({internalFloatFeatureIdx, span});
+            }
+        }
+        interpolationOptions.Enabled = !interpolationOptions.PerFloatFeatureConfig.empty();
+        return interpolationOptions;
+    }
+
     class TTextCollectionBuilder {
     public:
         TTextCollectionBuilder(
@@ -548,6 +598,10 @@ namespace NCB {
         if (CoreModel != dstModel) {
             *dstModel = std::move(*CoreModel);
         }
+        dstModel->ModelTrees.GetMutable()->SetFloatFeaturesInterpolationOptions(
+            BuildFloatFeaturesInterpolationOptions(Options, *dstModel->ModelTrees, LearnObjectsData.Get())
+        );
+        dstModel->UpdateDynamicData();
         dstModel->ModelInfo["model_guid"] = CreateGuidAsString();
         dstModel->ModelInfo["train_finish_time"] = TInstant::Now().ToStringUpToSeconds();
         dstModel->ModelInfo["catboost_version_info"] = GetProgramSvnVersion();

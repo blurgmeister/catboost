@@ -373,6 +373,11 @@ void NCatboostOptions::PlainJsonToOptions(
     CopyOption(plainOptions, "fixed_binary_splits", &treeOptions, &seenKeys);
     CopyOption(plainOptions, "monotone_constraints", &treeOptions, &seenKeys);
     CopyOption(plainOptions, "dev_leafwise_approxes", &treeOptions, &seenKeys);
+    CopyOption(plainOptions, "interpolation_enabled", &treeOptions, &seenKeys);
+    CopyOption(plainOptions, "interpolation_type", &treeOptions, &seenKeys);
+    CopyOption(plainOptions, "interpolation_span_mode", &treeOptions, &seenKeys);
+    CopyOption(plainOptions, "interpolation_span_per_float_feature", &treeOptions, &seenKeys);
+    CopyOption(plainOptions, "interpolation_min_span", &treeOptions, &seenKeys);
 
     auto& bootstrapOptions = treeOptions["bootstrap"];
     bootstrapOptions.SetType(NJson::JSON_MAP);
@@ -742,6 +747,21 @@ void NCatboostOptions::ConvertOptionsToPlainJson(
 
         CopyOption(treeOptions, "dev_leafwise_approxes", &plainOptionsJson, &seenKeys);
         DeleteSeenOption(&optionsCopyTree, "dev_leafwise_approxes");
+
+        CopyOption(treeOptions, "interpolation_enabled", &plainOptionsJson, &seenKeys);
+        DeleteSeenOption(&optionsCopyTree, "interpolation_enabled");
+
+        CopyOption(treeOptions, "interpolation_type", &plainOptionsJson, &seenKeys);
+        DeleteSeenOption(&optionsCopyTree, "interpolation_type");
+
+        CopyOption(treeOptions, "interpolation_span_mode", &plainOptionsJson, &seenKeys);
+        DeleteSeenOption(&optionsCopyTree, "interpolation_span_mode");
+
+        CopyOption(treeOptions, "interpolation_span_per_float_feature", &plainOptionsJson, &seenKeys);
+        DeleteSeenOption(&optionsCopyTree, "interpolation_span_per_float_feature");
+
+        CopyOption(treeOptions, "interpolation_min_span", &plainOptionsJson, &seenKeys);
+        DeleteSeenOption(&optionsCopyTree, "interpolation_min_span");
 
         // bootstrap
         if (treeOptions.Has("bootstrap")) {
