@@ -200,9 +200,7 @@ We should implement a filtering procedure to only route data points that need in
 
 • Phase 2 is not complete yet. The core CPU inference path is done, and GPU source changes have now been started, but these pieces are still left:
 
-  1. Build the Python extension / wheel and run Python tests against the new params.
-     The source plumbing is in, but it still needs real package-level verification.
-  2. GPU inference parity.
+  1. GPU inference parity.
      GPU evaluator source changes have now been added under `catboost/libs/model/cuda`, including:
       - interpolation settings copied into GPU model state
       - a separate interpolation-aware CUDA evaluation kernel for raw-float input paths
