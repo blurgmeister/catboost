@@ -513,6 +513,84 @@ void TGPUCatboostEvaluationContext::EvalQuantizedData(
     TArrayRef<double> result,
     NCB::NModelEvaluation::EPredictionType predictionType
     ) const {
+    if (GPUModelData.InterpolationEnabled && data->RawFloatFeatureCount != 0) {
+        ClearMemoryAsync(EvalDataCache.ResultsFloatBuf.AsArrayRef(), Stream);
+        const ui32 blockSize = 256;
+        const ui32 gridSize = NKernel::CeilDivide<ui32>(data->GetObjectsCount(), blockSize);
+        if (data->RawFloatRowFirst) {
+            TFeatureAccessor<float, TGPUDataInput::EFeatureLayout::RowFirst> floatFeatureAccessor;
+            floatFeatureAccessor.FeatureCount = data->RawFloatFeatureCount;
+            floatFeatureAccessor.Stride = data->RawFloatStride;
+            floatFeatureAccessor.ObjectCount = data->GetObjectsCount();
+            floatFeatureAccessor.FeaturesPtr = data->RawFloatData.Get();
+            EvalObliviousTreesWithInterpolation<<<gridSize, blockSize, 0, Stream>>>(
+                floatFeatureAccessor,
+                data->BinarizedFeaturesBuffer.Get(),
+                GPUModelData.TreeSizes.Get(),
+                GPUModelData.TreeStartOffsets.Get(),
+                GPUModelData.TreeSplits.Get(),
+                GPUModelData.TreeFirstLeafOffsets.Get(),
+                GPUModelData.FloatFeatureForBucketIdx.Size(),
+                GPUModelData.ModelLeafs.Get(),
+                GPUModelData.FloatFeatureForBucketIdx.Get(),
+                GPUModelData.BordersOffsets.Get(),
+                GPUModelData.FlatBordersVector.Get(),
+                GPUModelData.FloatFeatureInterpolationSpans.Get(),
+                GPUModelData.FloatFeatureInterpolationSpans.Size(),
+                GPUModelData.InterpolationUseSigmoid,
+                GPUModelData.InterpolationUseRelativeSpan,
+                GPUModelData.InterpolationMinSpan,
+                treeStart,
+                treeEnd,
+                data->GetObjectsCount(),
+                GPUModelData.ApproxDimension,
+                EvalDataCache.ResultsFloatBuf.Get()
+            );
+        } else {
+            TFeatureAccessor<float, TGPUDataInput::EFeatureLayout::ColumnFirst> floatFeatureAccessor;
+            floatFeatureAccessor.FeatureCount = data->RawFloatFeatureCount;
+            floatFeatureAccessor.Stride = data->RawFloatStride;
+            floatFeatureAccessor.ObjectCount = data->GetObjectsCount();
+            floatFeatureAccessor.FeaturesPtr = data->RawFloatData.Get();
+            EvalObliviousTreesWithInterpolation<<<gridSize, blockSize, 0, Stream>>>(
+                floatFeatureAccessor,
+                data->BinarizedFeaturesBuffer.Get(),
+                GPUModelData.TreeSizes.Get(),
+                GPUModelData.TreeStartOffsets.Get(),
+                GPUModelData.TreeSplits.Get(),
+                GPUModelData.TreeFirstLeafOffsets.Get(),
+                GPUModelData.FloatFeatureForBucketIdx.Size(),
+                GPUModelData.ModelLeafs.Get(),
+                GPUModelData.FloatFeatureForBucketIdx.Get(),
+                GPUModelData.BordersOffsets.Get(),
+                GPUModelData.FlatBordersVector.Get(),
+                GPUModelData.FloatFeatureInterpolationSpans.Get(),
+                GPUModelData.FloatFeatureInterpolationSpans.Size(),
+                GPUModelData.InterpolationUseSigmoid,
+                GPUModelData.InterpolationUseRelativeSpan,
+                GPUModelData.InterpolationMinSpan,
+                treeStart,
+                treeEnd,
+                data->GetObjectsCount(),
+                GPUModelData.ApproxDimension,
+                EvalDataCache.ResultsFloatBuf.Get()
+            );
+        }
+
+        if (GPUModelData.ApproxDimension == 1) {
+            ProcessResults<true>(*this, predictionType, data->GetObjectsCount());
+        } else {
+            ProcessResults<false>(*this, predictionType, data->GetObjectsCount());
+        }
+
+        NCuda::MemoryCopyAsync<double>(
+            EvalDataCache.ResultsDoubleBuf.Slice(0, data->GetObjectsCount() * GPUModelData.ApproxDimension),
+            result,
+            Stream
+        );
+        return;
+    }
+
     const dim3 treeCalcDimBlock(EvalDocBlockSize, TreeSubBlockWidth);
     const dim3 treeCalcDimGrid(
         NKernel::CeilDivide<unsigned int>(treeEnd - treeStart, TreeSubBlockWidth * ExtTreeBlockWidth),

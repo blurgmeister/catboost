@@ -85,7 +85,7 @@ namespace NCB::NModelEvaluation {
                 );
                 Ctx.GPUModelData.Scale = scaleAndBias.Scale;
                 const auto& interpolationOptions = ModelTrees->GetFloatFeaturesInterpolationOptions();
-                Ctx.GPUModelData.InterpolationEnabled = ModelTrees->HasValidFloatFeatureInterpolation();
+                Ctx.GPUModelData.InterpolationEnabled = ModelTrees->HasEnabledFloatFeaturesInterpolation();
                 Ctx.GPUModelData.InterpolationUseSigmoid =
                     interpolationOptions.Type == EFloatFeaturesInterpolationType::Sigmoid;
                 Ctx.GPUModelData.InterpolationUseRelativeSpan =
@@ -312,7 +312,6 @@ namespace NCB::NModelEvaluation {
                 CB_ENSURE(quantizedFeatures != nullptr, "Got null quantizedFeatures");
                 const TCudaQuantizedData* cudaQuantizedFeatures = dynamic_cast<const TCudaQuantizedData*>(quantizedFeatures);
                 CB_ENSURE(cudaQuantizedFeatures != nullptr, "Got improperly typed quantized data");
-                CB_ENSURE(!Ctx.GPUModelData.InterpolationEnabled, "GPU evaluation with interpolation requires raw float features");
                 Ctx.EvalQuantizedData(cudaQuantizedFeatures, treeStart, treeEnd, results, PredictionType);
             }
 
@@ -385,6 +384,22 @@ namespace NCB::NModelEvaluation {
             NCuda::MemoryCopyAsync<float>(copyBufRef, Ctx.EvalDataCache.CopyDataBufDevice.AsArrayRef(), Ctx.Stream);
             TCudaQuantizedData* cudaQuantizedData = static_cast<TCudaQuantizedData*>(quantizedData);
             Ctx.QuantizeData(dataInput, cudaQuantizedData);
+            if (Ctx.GPUModelData.InterpolationEnabled) {
+                cudaQuantizedData->RawFloatFeatureCount = static_cast<ui32>(expectedFlatVecSize);
+                cudaQuantizedData->RawFloatStride = static_cast<ui32>(stride);
+                cudaQuantizedData->RawFloatRowFirst = true;
+                cudaQuantizedData->RawFloatData = TCudaVec<float>(docCount * stride, NCuda::EMemoryType::Device);
+                NCuda::MemoryCopyAsync<float>(
+                    Ctx.EvalDataCache.CopyDataBufDevice.Slice(0, docCount * stride),
+                    cudaQuantizedData->RawFloatData.AsArrayRef(),
+                    Ctx.Stream
+                );
+            } else {
+                cudaQuantizedData->RawFloatData = TCudaVec<float>();
+                cudaQuantizedData->RawFloatFeatureCount = 0;
+                cudaQuantizedData->RawFloatStride = 0;
+                cudaQuantizedData->RawFloatRowFirst = false;
+            }
         }
         private:
             template <typename TCatFeatureContainer = TConstArrayRef<int>>

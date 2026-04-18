@@ -667,6 +667,30 @@ Y_UNIT_TEST_SUITE(TObliviousTreeModel) {
         CheckFlatCalcPredictionsOnly(model, expectedPredicts, GetFeatureRef(data));
     }
 
+    Y_UNIT_TEST(TestSingleSplitSigmoidInterpolationAbsoluteSpanGpu) {
+        if (!IsGpuEvaluatorSupported()) {
+            return;
+        }
+
+        auto model = BuildSingleSplitFloatModel(10.0f, 0.0, 10.0);
+        EnableInterpolation(
+            &model,
+            EFloatFeaturesInterpolationType::Sigmoid,
+            EFloatFeaturesInterpolationSpanMode::Absolute,
+            0.0,
+            {{0, 2.0}}
+        );
+        model.SetEvaluatorType(EFormulaEvaluatorType::GPU);
+
+        TVector<TVector<float>> data = {{8.f}, {10.f}, {12.f}};
+        TVector<double> expectedPredicts = {
+            10.0 * Sigmoid(-5.0),
+            5.0,
+            10.0 * Sigmoid(5.0)
+        };
+        CheckFlatCalcPredictionsOnly(model, expectedPredicts, GetFeatureRef(data));
+    }
+
     Y_UNIT_TEST(TestInterpolationIsTreeLocalForMultipleTrees) {
         auto model = BuildTwoTreeSingleSplitFloatModel(
             10.0f,
@@ -828,6 +852,63 @@ Y_UNIT_TEST_SUITE(TObliviousTreeModel) {
 
     Y_UNIT_TEST(TestQuantizedInterpolationDoesNotLeakAcrossEvaluationBlocks) {
         const TFullModel model = TrainRegressionInterpolationLeakModel();
+        const auto& trees = *model.ModelTrees;
+
+        TMaybe<float> interpolatedBorder;
+        for (int splitIdx : trees.GetModelTreeData()->GetTreeSplits()) {
+            const auto& split = trees.GetBinFeatures()[splitIdx];
+            if (split.Type == ESplitType::FloatFeature && split.FloatFeature.FloatFeature == 0) {
+                interpolatedBorder = split.FloatFeature.Split;
+                break;
+            }
+        }
+        UNIT_ASSERT(interpolatedBorder.Defined());
+
+        TVector<float> baseFirstFeature(160, *interpolatedBorder);
+        TVector<float> shiftedFirstFeature = baseFirstFeature;
+        for (size_t docId = 0; docId < 128; ++docId) {
+            shiftedFirstFeature[docId] = *interpolatedBorder - 10.0f;
+        }
+
+        TVector<float> secondFeature(160);
+        for (size_t docId = 0; docId < secondFeature.size(); ++docId) {
+            secondFeature[docId] = static_cast<float>(docId % 7);
+        }
+
+        const auto basePool = CreateFloatOnlyPool(baseFirstFeature, secondFeature);
+        const auto shiftedPool = CreateFloatOnlyPool(shiftedFirstFeature, secondFeature);
+
+        const auto baseQuantized = MakeQuantizedFeaturesForEvaluator(model, *basePool->ObjectsData);
+        const auto shiftedQuantized = MakeQuantizedFeaturesForEvaluator(model, *shiftedPool->ObjectsData);
+
+        TVector<double> basePredictions(160);
+        TVector<double> shiftedPredictions(160);
+
+        model.GetCurrentEvaluator()->Calc(
+            baseQuantized.Get(),
+            0,
+            model.GetTreeCount(),
+            basePredictions
+        );
+        model.GetCurrentEvaluator()->Calc(
+            shiftedQuantized.Get(),
+            0,
+            model.GetTreeCount(),
+            shiftedPredictions
+        );
+
+        for (size_t docId = 128; docId < 160; ++docId) {
+            UNIT_ASSERT_DOUBLES_EQUAL(basePredictions[docId], shiftedPredictions[docId], 1e-12);
+        }
+    }
+
+    Y_UNIT_TEST(TestQuantizedInterpolationDoesNotLeakAcrossEvaluationBlocksGpu) {
+        if (!IsGpuEvaluatorSupported()) {
+            return;
+        }
+
+        TFullModel model = TrainRegressionInterpolationLeakModel();
+        model.SetEvaluatorType(EFormulaEvaluatorType::GPU);
         const auto& trees = *model.ModelTrees;
 
         TMaybe<float> interpolatedBorder;

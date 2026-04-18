@@ -65,6 +65,10 @@ public:
     void SetDimensions(ui32 effectiveBucketCount, ui32 objectsCount);
 public:
     TCudaVec<TCudaQuantizationBucket> BinarizedFeaturesBuffer;
+    TCudaVec<float> RawFloatData;
+    ui32 RawFloatFeatureCount = 0;
+    ui32 RawFloatStride = 0;
+    bool RawFloatRowFirst = false;
 private:
     size_t ObjectsCount = 0;
     size_t EffectiveBucketCount = 0;
