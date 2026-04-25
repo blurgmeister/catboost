@@ -18,8 +18,8 @@ def create_baseline_plots():
     tasks = [
         {
             "name": "regression",
-            "data_path": "/workspaces/test_output/regression/california_housing.csv",
-            "output_dir": "/workspaces/test_output/regression/new_code/",
+            "data_path": "/home/kerith/workspaces/test_output/regression/california_housing.csv",
+            "output_dir": "/home/kerith/workspaces/test_output/regression/new_code/",
             "model_class": cb.CatBoostRegressor,
             "params": {
                 "loss_function": "Poisson", 
@@ -39,8 +39,8 @@ def create_baseline_plots():
         },
         {
             "name": "classification",
-            "data_path": "/workspaces/test_output/classification/breast_cancer.csv",
-            "output_dir": "/workspaces/test_output/classification/new_code/",
+            "data_path": "/home/kerith/workspaces/test_output/classification/breast_cancer.csv",
+            "output_dir": "/home/kerith/workspaces/test_output/classification/new_code/",
             "model_class": cb.CatBoostClassifier,
             "params": {
                 "loss_function": "Logloss", 

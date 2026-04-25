@@ -18,15 +18,15 @@ def create_baseline_plots():
     tasks = [
         {
             "name": "regression",
-            "data_path": "/workspaces/test_output/regression/california_housing.csv",
-            "output_dir": "/workspaces/test_output/regression/original_code/",
+            "data_path": "/home/kerith/workspaces/test_output/regression/california_housing.csv",
+            "output_dir": "/home/kerith/workspaces/test_output/regression/original_code/",
             "model_class": CatBoostRegressor,
             "params": {"loss_function": "Poisson", "random_seed": random_seed}
         },
         {
             "name": "classification",
-            "data_path": "/workspaces/test_output/classification/breast_cancer.csv",
-            "output_dir": "/workspaces/test_output/classification/original_code/",
+            "data_path": "/home/kerith/workspaces/test_output/classification/breast_cancer.csv",
+            "output_dir": "/home/kerith/workspaces/test_output/classification/original_code/",
             "model_class": CatBoostClassifier,
             "params": {"loss_function": "Logloss", "random_seed": random_seed}
         }
@@ -51,7 +51,7 @@ def create_baseline_plots():
             params = task["params"].copy()
             params["depth"] = depth
             params["iterations"] = 1000 # Increase estimators to allow early stopping to work
-            params["train_dir"] = "/workspaces/catboost_info"
+            params["train_dir"] = "/home/kerith/workspaces/catboost_info"
             
             model = task["model_class"](**params)
             model.fit(X_train, y_train, eval_set=[(X_val, y_val)], early_stopping_rounds=25, verbose=False)

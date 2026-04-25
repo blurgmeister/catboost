@@ -4,8 +4,8 @@ from sklearn.datasets import fetch_california_housing, load_breast_cancer
 
 def download_datasets():
     # Define paths
-    regression_dir = "/workspaces/test_output/regression/"
-    classification_dir = "/workspaces/test_output/classification/"
+    regression_dir = "~/workspaces/test_output/regression/"
+    classification_dir = "~/workspaces/test_output/classification/"
     
     # Ensure directories exist (though user mentioned they do, good practice)
     os.makedirs(regression_dir, exist_ok=True)
