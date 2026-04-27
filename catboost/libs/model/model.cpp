@@ -409,7 +409,8 @@ TModelTrees::FBSerialize(TModelPartsCachingSerializer& serializer) const {
             NCatBoostFbs::CreateTFloatFeatureInterpolationConfig(
                 builder,
                 config.FloatFeatureIndex,
-                config.Span
+                config.Span,
+                CheckedEnumCast<NCatBoostFbs::EFloatFeaturesInterpolationSpanMode>(config.SpanMode)
             )
         );
     }
@@ -461,9 +462,11 @@ void TModelTrees::ProcessFloatFeatures() {
         }
     }
     ApplyData->FloatFeatureInterpolationSpans.assign(GetNumFloatFeatures(), -1.0);
+    ApplyData->FloatFeatureInterpolationSpanModes.assign(GetNumFloatFeatures(), FloatFeaturesInterpolationOptions.SpanMode);
     for (const auto& config : FloatFeaturesInterpolationOptions.PerFloatFeatureConfig) {
         if (config.FloatFeatureIndex < ApplyData->FloatFeatureInterpolationSpans.size()) {
             ApplyData->FloatFeatureInterpolationSpans[config.FloatFeatureIndex] = config.Span;
+            ApplyData->FloatFeatureInterpolationSpanModes[config.FloatFeatureIndex] = config.SpanMode;
         }
     }
 }
@@ -793,9 +796,15 @@ static TFloatFeaturesInterpolationOptions DeserializeFloatFeaturesInterpolationO
     if (fbObj->FloatFeatureInterpolationConfigs()) {
         options.PerFloatFeatureConfig.reserve(fbObj->FloatFeatureInterpolationConfigs()->size());
         for (const auto* config : *fbObj->FloatFeatureInterpolationConfigs()) {
+            auto spanMode = CheckedEnumCast<EFloatFeaturesInterpolationSpanMode>(config->SpanMode());
+            if (options.SpanMode == EFloatFeaturesInterpolationSpanMode::Relative &&
+                spanMode == EFloatFeaturesInterpolationSpanMode::Absolute) {
+                spanMode = options.SpanMode;
+            }
             options.PerFloatFeatureConfig.push_back({
                 config->FloatFeatureIndex(),
-                config->Span()
+                config->Span(),
+                spanMode
             });
         }
     }

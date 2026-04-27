@@ -2452,6 +2452,12 @@ def _check_param_types(params):
                 "Invalid `interpolation_span_per_float_feature` type={} : must be dict-like mapping of float feature index to span."
                 .format(type(params['interpolation_span_per_float_feature']))
             )
+    if 'interpolation_span_mode' in params:
+        if not isinstance(params['interpolation_span_mode'], (Mapping, MutableMapping)):
+            raise CatBoostError(
+                "Invalid `interpolation_span_mode` type={} : must be dict-like mapping of float feature index to span mode."
+                .format(type(params['interpolation_span_mode']))
+            )
     if 'monotone_constraints' in params:
         if not isinstance(params['monotone_constraints'], STRING_TYPES + ARRAY_TYPES + (dict,)):
             raise CatBoostError(
@@ -2478,6 +2484,36 @@ def _params_type_cast(params):
         value = _cast_to_base_types(value)
         casted_params[key] = value
     return casted_params
+
+
+def _translate_feature_keyed_dict_keys(params, param_name, feature_names):
+    if param_name not in params:
+        return
+
+    value_by_feature = params[param_name]
+    if not isinstance(value_by_feature, (Mapping, MutableMapping)):
+        return
+
+    feature_indices = []
+    feature_keys = list(value_by_feature.keys())
+    for feature_key in feature_keys:
+        if isinstance(feature_key, STRING_TYPES):
+            if feature_names is not None and feature_key in feature_names:
+                feature_indices.append(feature_names.index(feature_key))
+            else:
+                try:
+                    feature_indices.append(int(feature_key))
+                except ValueError:
+                    raise CatBoostError(
+                        "features parameter contains string value '{}' but feature names for a dataset are not specified"
+                        .format(feature_key)
+                    )
+        else:
+            feature_indices.append(feature_key)
+    params[param_name] = {
+        feature_idx: value_by_feature[feature_key]
+        for feature_key, feature_idx in zip(feature_keys, feature_indices)
+    }
 
 
 def _is_data_single_object(data):
@@ -2586,6 +2622,9 @@ class CatBoost(_CatBoostBase):
                                        baseline, column_description)
         if train_pool.is_empty_:
             raise CatBoostError("X is empty.")
+
+        _translate_feature_keyed_dict_keys(params, 'interpolation_span_mode', train_pool.get_feature_names())
+        _translate_feature_keyed_dict_keys(params, 'interpolation_span_per_float_feature', train_pool.get_feature_names())
 
         allow_clear_pool = not isinstance(X, Pool)
 
@@ -4896,16 +4935,14 @@ class CatBoostClassifier(CatBoost):
         Possible values:
             - 'Linear'
             - 'Sigmoid'
-    interpolation_span_mode : string, [default='Absolute']
-        Interpretation mode for interpolation spans.
-        Possible values:
-            - 'Absolute'
-            - 'Relative'
+    interpolation_span_mode : dict, [default=None]
+        Mapping from flat feature index or feature name to interpolation span mode for float features.
+        Possible values are 'Absolute' and 'Relative'.
     interpolation_span_per_float_feature : dict, [default=None]
-        Mapping from flat feature index to interpolation span for float features.
+        Mapping from flat feature index or feature name to interpolation span for float features.
         Example: {0: 0.5, 3: 1.0}
     interpolation_min_span : float, [default=0]
-        Minimum span used when interpolation_span_mode='Relative'.
+        Minimum span used for features with interpolation_span_mode='Relative'.
     input_borders : string or os.PathLike, [default=None]
         input file with borders used in numeric features binarization.
     output_borders : string, [default=None]

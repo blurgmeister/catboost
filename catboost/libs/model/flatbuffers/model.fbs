@@ -32,6 +32,7 @@ enum EFloatFeaturesInterpolationSpanMode : byte {
 table TFloatFeatureInterpolationConfig {
     FloatFeatureIndex:uint32;
     Span:double;
+    SpanMode:EFloatFeaturesInterpolationSpanMode = Absolute;
 }
 
 table TModelTrees {

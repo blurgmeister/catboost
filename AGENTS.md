@@ -17,7 +17,7 @@ The intended behavior is:
   - linear
   - sigmoid
 
-THis project will progress in 3 phases:
+This project will progress in 3 phases:
 - Phase 1: Download data for regression and classification example tasks. We will fit the original implementation of catboost and output PDP/ICE plots for all features fitted. We will observe the piecewise constant nature of GBM relationships between features and target.
 - Phase 2: Apply interpolation only at inference time, storing the selected feature spans and interpolation types within the model objects as built. This will not change model training yet. We will apply this to both CPU and GPU backend code, and also edit the python front end to accomodate the new hyper parameters for user use. Once code is complete, it will need recompilation, re-creating a new python wheel and then a pip install of the new code for testing and use. Testing will involve re-running the models, but with interpolation on to compare PDP/ICE plots.
 - Phase 3: Here we will also alter the model training procedure to include leaf node prediction interpolation during the training process, but only for the final leaf nodes of the tree. Each individual tree will be constructed as normal (without interpolation throughout the node and split choosing process), but only to the resulting final leaf nodes (affecting subsequent trees being constructed in the boosting sequence). Again this will require re-compilation, creating a new wheel and another pip install for testing.
@@ -164,17 +164,15 @@ The current implementation supports:
 
 - per-feature interpolation span values
 - one global interpolation type for the whole model
-- one global interpolation span mode for the whole model
+- per-feature interpolation span mode
 
-Future work should extend the backend to allow choosing interpolation type and span mode per float feature as well, not just per model.
+If future work should extend the backend to allow choosing interpolation type per float feature as well, then this does not look like a small evaluator-only patch. The likely scope includes:
 
-This does not look like a small evaluator-only patch. The likely scope includes:
-
-- options layer changes in `catboost/private/libs/options` so the configuration can carry per-feature interpolation type and per-feature interpolation span mode alongside per-feature spans
-- model runtime structure changes in `catboost/libs/model/model.h` so `TFloatFeatureInterpolationConfig` stores feature-specific type and span-mode fields instead of relying on only global `Type` and `SpanMode`
+- options layer changes in `catboost/private/libs/options` so the configuration can carry per-feature interpolation type alongside per-feature spans and types
+- model runtime structure changes in `catboost/libs/model/model.h` so `TFloatFeatureInterpolationConfig` stores feature-specific type and span-mode fields instead of relying on only global `Type`
 - serialization format changes in `catboost/libs/model/model.cpp` and `catboost/libs/model/flatbuffers/model.fbs` so the model artifact persists these per-feature settings while keeping old models readable
 - CPU evaluator changes in `catboost/libs/model/cpu/evaluator_impl.cpp` so each float split uses the interpolation type and span mode associated with its float feature
-- GPU evaluator changes in `catboost/libs/model/cuda` because the current GPU path derives simple global flags such as sigmoid vs linear and relative vs absolute; that logic would need per-feature lookups instead
+- GPU evaluator changes in `catboost/libs/model/cuda` because the current GPU path derives simple global flags such as sigmoid vs linear; that logic would need per-feature lookups instead
 - Python parameter plumbing in `catboost/python-package/catboost/core.py` and related wrappers so the user-facing API can express per-feature type/mode in a validated format
 - test updates across model serialization tests, evaluator unit tests, Python option round-trip tests, and CPU/GPU parity tests
 
@@ -187,7 +185,6 @@ One reasonable design direction would be to extend the per-feature interpolation
 
 If this is implemented, preserve backward compatibility by:
 
-- continuing to accept the existing global `interpolation_type` and `interpolation_span_mode` settings
 - defining how global settings interact with per-feature overrides
 - keeping old model artifacts and old Python call patterns valid
 

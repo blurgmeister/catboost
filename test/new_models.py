@@ -26,10 +26,15 @@ def create_baseline_plots():
                 "random_seed": random_seed,
                 "interpolation_enabled": True,
                 "interpolation_type": "Sigmoid",
-                "interpolation_span_mode": "Relative",
+                "interpolation_span_mode": {
+                    "AveBedrms": "Relative", "AveOccup": "Relative",
+                    "AveRooms": "Relative", "HouseAge": "Relative",
+                    "Latitude": "Absolute", "Longitude": "Absolute",
+                    "MedInc": "Relative", "Population": "Relative"
+                },
                 "interpolation_span_per_float_feature": {"AveBedrms" : 0.05, "AveOccup" : 0.2 ,
                                                          "AveRooms" : 0.16, "HouseAge" : 0.25,
-                                                         "Latitude" : 1/34, "Longitude" : 1/120,
+                                                         "Latitude" : 1, "Longitude" : 1,
                                                          "MedInc" : 0.25, "Population" : 0.25},
 
                 "monotone_constraints": {"AveBedrms": 1, "AveOccup": -1, "HouseAge": 1,
@@ -47,13 +52,20 @@ def create_baseline_plots():
                 "random_seed": random_seed,
                 "interpolation_enabled": True,
                 "interpolation_type": "Sigmoid",
-                "interpolation_span_mode": "Relative",
+                "interpolation_span_mode": {
+                    "area error": "Relative", "mean concave points": "Relative",
+                    "mean texture": "Relative", "perimeter error": "Relative",
+                    "radius error": "Absolute", "worst area": "Relative",
+                    "worst concave points": "Relative", "worst concavity": "Relative",
+                    "worst perimeter": "Relative", "worst radius": "Relative",
+                    "worst texture": "Relative", "mean fractal dimension": "Absolute"
+                },
                 "interpolation_span_per_float_feature": {"area error" : 0.25, "mean concave points" : 0.5,
                                                          "mean texture" : 0.2, "perimeter error" : 0.3,
-                                                         "radius error" : 1/3, "worst area" : 0.5,
+                                                         "radius error" : 1, "worst area" : 0.5,
                                                          "worst concave points" : 0.5, "worst concavity" : 1,
                                                          "worst perimeter" : 0.5, "worst radius" : 0.25,
-                                                         "worst texture" : 0.3, "mean fractal dimension" : 0.025/0.65},
+                                                         "worst texture" : 0.3, "mean fractal dimension" : 0.025},
 
                 "monotone_constraints": {"mean concave points" : -1, "mean fractal dimension": 1,
                                        "perimeter error" : -1,

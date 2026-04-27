@@ -58,6 +58,15 @@ namespace NCB::NModelEvaluation {
                     ApplyData->FloatFeatureInterpolationSpans,
                     NCuda::EMemoryType::Device
                 );
+                TVector<ui8> spanModes;
+                spanModes.reserve(ApplyData->FloatFeatureInterpolationSpanModes.size());
+                for (auto spanMode : ApplyData->FloatFeatureInterpolationSpanModes) {
+                    spanModes.push_back(spanMode == EFloatFeaturesInterpolationSpanMode::Relative ? 1 : 0);
+                }
+                Ctx.GPUModelData.FloatFeatureInterpolationSpanModes = TCudaVec<ui8>(
+                    spanModes,
+                    NCuda::EMemoryType::Device
+                );
 
                 Ctx.GPUModelData.TreeSizes = TCudaVec<ui32>(
                     TVector<ui32>(ModelTrees->GetModelTreeData()->GetTreeSizes().begin(), ModelTrees->GetModelTreeData()->GetTreeSizes().end()),
@@ -88,8 +97,6 @@ namespace NCB::NModelEvaluation {
                 Ctx.GPUModelData.InterpolationEnabled = ModelTrees->HasEnabledFloatFeaturesInterpolation();
                 Ctx.GPUModelData.InterpolationUseSigmoid =
                     interpolationOptions.Type == EFloatFeaturesInterpolationType::Sigmoid;
-                Ctx.GPUModelData.InterpolationUseRelativeSpan =
-                    interpolationOptions.SpanMode == EFloatFeaturesInterpolationSpanMode::Relative;
                 Ctx.GPUModelData.InterpolationMinSpan = interpolationOptions.MinSpan;
 
                 Ctx.Stream = TCudaStream::NewStream();

@@ -97,9 +97,10 @@ struct TNonSymmetricTreeStepNode {
 struct TFloatFeatureInterpolationConfig {
     ui32 FloatFeatureIndex = 0;
     double Span = 0.0;
+    EFloatFeaturesInterpolationSpanMode SpanMode = EFloatFeaturesInterpolationSpanMode::Absolute;
 
     bool operator==(const TFloatFeatureInterpolationConfig& other) const {
-        return std::tie(FloatFeatureIndex, Span) == std::tie(other.FloatFeatureIndex, other.Span);
+        return std::tie(FloatFeatureIndex, Span, SpanMode) == std::tie(other.FloatFeatureIndex, other.Span, other.SpanMode);
     }
 
     bool operator!=(const TFloatFeatureInterpolationConfig& other) const {
@@ -203,6 +204,7 @@ public:
 
         // Negative span means interpolation is disabled for the float feature.
         TVector<double> FloatFeatureInterpolationSpans;
+        TVector<EFloatFeaturesInterpolationSpanMode> FloatFeatureInterpolationSpanModes;
 
         /**
          * List all unique CTR bases (feature combination + ctr type) in model

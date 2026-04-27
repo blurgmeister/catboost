@@ -215,8 +215,9 @@ __device__ __forceinline__ double CalcInterpolatedRightWeightForDocument(
     const float* __restrict__ flatBorders,
     const double* __restrict__ interpolationSpans,
     ui32 interpolationSpansCount,
+    const ui8* __restrict__ interpolationSpanModes,
+    ui32 interpolationSpanModesCount,
     bool useSigmoid,
-    bool useRelativeSpan,
     double minSpan
 ) {
     const ui32 bucketIdx = split.FeatureIdx / WarpSize;
@@ -236,6 +237,7 @@ __device__ __forceinline__ double CalcInterpolatedRightWeightForDocument(
     }
 
     const double border = __ldg(flatBorders + __ldg(bordersOffsets + bucketIdx) + split.FeatureVal - 1);
+    const bool useRelativeSpan = floatFeatureIdx < interpolationSpanModesCount && __ldg(interpolationSpanModes + floatFeatureIdx) != 0;
     const double actualSpan = useRelativeSpan
         ? fmax(minSpan, configuredSpan * fabs(border))
         : configuredSpan;
@@ -345,8 +347,9 @@ __global__ void EvalObliviousTreesWithInterpolation(
     const float* __restrict__ flatBorders,
     const double* __restrict__ interpolationSpans,
     const ui32 interpolationSpansCount,
+    const ui8* __restrict__ interpolationSpanModes,
+    const ui32 interpolationSpanModesCount,
     const bool useSigmoid,
-    const bool useRelativeSpan,
     const double minSpan,
     const ui32 treeStart,
     const ui32 treeEnd,
@@ -379,8 +382,9 @@ __global__ void EvalObliviousTreesWithInterpolation(
                 flatBorders,
                 interpolationSpans,
                 interpolationSpansCount,
+                interpolationSpanModes,
+                interpolationSpanModesCount,
                 useSigmoid,
-                useRelativeSpan,
                 minSpan
             );
         }
@@ -537,8 +541,9 @@ void TGPUCatboostEvaluationContext::EvalQuantizedData(
                 GPUModelData.FlatBordersVector.Get(),
                 GPUModelData.FloatFeatureInterpolationSpans.Get(),
                 GPUModelData.FloatFeatureInterpolationSpans.Size(),
+                GPUModelData.FloatFeatureInterpolationSpanModes.Get(),
+                GPUModelData.FloatFeatureInterpolationSpanModes.Size(),
                 GPUModelData.InterpolationUseSigmoid,
-                GPUModelData.InterpolationUseRelativeSpan,
                 GPUModelData.InterpolationMinSpan,
                 treeStart,
                 treeEnd,
@@ -566,8 +571,9 @@ void TGPUCatboostEvaluationContext::EvalQuantizedData(
                 GPUModelData.FlatBordersVector.Get(),
                 GPUModelData.FloatFeatureInterpolationSpans.Get(),
                 GPUModelData.FloatFeatureInterpolationSpans.Size(),
+                GPUModelData.FloatFeatureInterpolationSpanModes.Get(),
+                GPUModelData.FloatFeatureInterpolationSpanModes.Size(),
                 GPUModelData.InterpolationUseSigmoid,
-                GPUModelData.InterpolationUseRelativeSpan,
                 GPUModelData.InterpolationMinSpan,
                 treeStart,
                 treeEnd,
@@ -696,8 +702,9 @@ void TGPUCatboostEvaluationContext::EvalData(
             GPUModelData.FlatBordersVector.Get(),
             GPUModelData.FloatFeatureInterpolationSpans.Get(),
             GPUModelData.FloatFeatureInterpolationSpans.Size(),
+            GPUModelData.FloatFeatureInterpolationSpanModes.Get(),
+            GPUModelData.FloatFeatureInterpolationSpanModes.Size(),
             GPUModelData.InterpolationUseSigmoid,
-            GPUModelData.InterpolationUseRelativeSpan,
             GPUModelData.InterpolationMinSpan,
             treeStart,
             treeEnd,
@@ -725,8 +732,9 @@ void TGPUCatboostEvaluationContext::EvalData(
             GPUModelData.FlatBordersVector.Get(),
             GPUModelData.FloatFeatureInterpolationSpans.Get(),
             GPUModelData.FloatFeatureInterpolationSpans.Size(),
+            GPUModelData.FloatFeatureInterpolationSpanModes.Get(),
+            GPUModelData.FloatFeatureInterpolationSpanModes.Size(),
             GPUModelData.InterpolationUseSigmoid,
-            GPUModelData.InterpolationUseRelativeSpan,
             GPUModelData.InterpolationMinSpan,
             treeStart,
             treeEnd,

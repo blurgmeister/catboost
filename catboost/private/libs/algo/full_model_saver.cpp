@@ -39,7 +39,7 @@ namespace {
         const auto& treeOptions = options.ObliviousTreeOptions.Get();
         interpolationOptions.Enabled = treeOptions.FloatFeaturesInterpolationEnabled.Get();
         interpolationOptions.Type = treeOptions.FloatFeaturesInterpolationType.Get();
-        interpolationOptions.SpanMode = treeOptions.FloatFeaturesInterpolationSpanMode.Get();
+        interpolationOptions.SpanMode = EFloatFeaturesInterpolationSpanMode::Absolute;
         interpolationOptions.MinSpan = treeOptions.FloatFeaturesInterpolationMinSpan.Get();
 
         if (!interpolationOptions.Enabled) {
@@ -64,16 +64,37 @@ namespace {
             );
             featuresLayout = modelFeaturesLayout.Get();
         }
-        for (const auto& [flatFeatureIdx, span] : treeOptions.FloatFeaturesInterpolationSpanPerFeature.Get()) {
+        auto getInternalFloatFeatureIdx = [&] (ui32 flatFeatureIdx) -> TMaybe<ui32> {
             ui32 internalFloatFeatureIdx = flatFeatureIdx;
             if (featuresLayout) {
                 if (!featuresLayout->IsCorrectExternalFeatureIdxAndType(flatFeatureIdx, EFeatureType::Float)) {
-                    continue;
+                    return Nothing();
                 }
                 internalFloatFeatureIdx = *featuresLayout->GetInternalFeatureIdx<EFeatureType::Float>(flatFeatureIdx);
             }
-            if (usedFloatFeatures.contains(internalFloatFeatureIdx)) {
-                interpolationOptions.PerFloatFeatureConfig.push_back({internalFloatFeatureIdx, span});
+            return internalFloatFeatureIdx;
+        };
+
+        TMap<ui32, EFloatFeaturesInterpolationSpanMode> spanModesByInternalFloatFeatureIdx;
+        for (const auto& [flatFeatureIdx, spanMode] : treeOptions.FloatFeaturesInterpolationSpanMode.Get()) {
+            auto internalFloatFeatureIdx = getInternalFloatFeatureIdx(flatFeatureIdx);
+            if (internalFloatFeatureIdx.Defined()) {
+                spanModesByInternalFloatFeatureIdx[*internalFloatFeatureIdx] = spanMode;
+            }
+        }
+
+        for (const auto& [flatFeatureIdx, span] : treeOptions.FloatFeaturesInterpolationSpanPerFeature.Get()) {
+            auto internalFloatFeatureIdx = getInternalFloatFeatureIdx(flatFeatureIdx);
+            if (!internalFloatFeatureIdx.Defined()) {
+                continue;
+            }
+            if (usedFloatFeatures.contains(*internalFloatFeatureIdx)) {
+                const auto* spanMode = spanModesByInternalFloatFeatureIdx.FindPtr(*internalFloatFeatureIdx);
+                interpolationOptions.PerFloatFeatureConfig.push_back({
+                    *internalFloatFeatureIdx,
+                    span,
+                    spanMode ? *spanMode : EFloatFeaturesInterpolationSpanMode::Absolute
+                });
             }
         }
         interpolationOptions.Enabled = !interpolationOptions.PerFloatFeatureConfig.empty();

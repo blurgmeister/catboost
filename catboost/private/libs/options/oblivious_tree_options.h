@@ -61,7 +61,7 @@ namespace NCatboostOptions {
         TOption<TFeaturePenaltiesOptions> FeaturePenalties;
         TOption<bool> FloatFeaturesInterpolationEnabled;
         TOption<EFloatFeaturesInterpolationType> FloatFeaturesInterpolationType;
-        TOption<EFloatFeaturesInterpolationSpanMode> FloatFeaturesInterpolationSpanMode;
+        TOption<TMap<ui32, EFloatFeaturesInterpolationSpanMode>> FloatFeaturesInterpolationSpanMode;
         TOption<TMap<ui32, double>> FloatFeaturesInterpolationSpanPerFeature;
         TOption<double> FloatFeaturesInterpolationMinSpan;
 

@@ -798,7 +798,10 @@ namespace NCB::NModelEvaluation {
         }
 
         const auto& interpolationOptions = trees.GetFloatFeaturesInterpolationOptions();
-        const double actualSpan = interpolationOptions.SpanMode == EFloatFeaturesInterpolationSpanMode::Relative
+        const auto spanMode = floatFeatureIdx < applyData.FloatFeatureInterpolationSpanModes.size()
+            ? applyData.FloatFeatureInterpolationSpanModes[floatFeatureIdx]
+            : interpolationOptions.SpanMode;
+        const double actualSpan = spanMode == EFloatFeaturesInterpolationSpanMode::Relative
             ? Max(interpolationOptions.MinSpan, configuredSpan * std::abs(border))
             : configuredSpan;
         if (actualSpan <= 0.0) {

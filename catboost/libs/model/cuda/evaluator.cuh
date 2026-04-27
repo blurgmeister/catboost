@@ -30,6 +30,7 @@ struct TGPUModelData : public TThrRefBase {
     TCudaVec<TCudaEvaluatorLeafType> ModelLeafs;
     TCudaVec<ui32> FloatFeatureForBucketIdx;
     TCudaVec<double> FloatFeatureInterpolationSpans;
+    TCudaVec<ui8> FloatFeatureInterpolationSpanModes;
     TVector<bool> UsedInModel;
 
     size_t ApproxDimension = 0;
@@ -38,7 +39,6 @@ struct TGPUModelData : public TThrRefBase {
     double Scale = 0.0;
     bool InterpolationEnabled = false;
     bool InterpolationUseSigmoid = false;
-    bool InterpolationUseRelativeSpan = false;
     double InterpolationMinSpan = 0.0;
 };
 

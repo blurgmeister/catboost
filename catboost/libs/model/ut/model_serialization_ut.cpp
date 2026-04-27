@@ -105,7 +105,11 @@ Y_UNIT_TEST_SUITE(TModelSerialization) {
         params.InsertValue("random_seed", 0);
         params.InsertValue("interpolation_enabled", true);
         params.InsertValue("interpolation_type", "Linear");
-        params.InsertValue("interpolation_span_mode", "Absolute");
+        {
+            NJson::TJsonValue spanModes(NJson::EJsonValueType::JSON_MAP);
+            spanModes["2"] = "Absolute";
+            params.InsertValue("interpolation_span_mode", std::move(spanModes));
+        }
         params.InsertValue("interpolation_min_span", 0.0);
         {
             NJson::TJsonValue ignoredFeatures(NJson::EJsonValueType::JSON_ARRAY);
@@ -146,6 +150,10 @@ Y_UNIT_TEST_SUITE(TModelSerialization) {
         UNIT_ASSERT_VALUES_EQUAL(interpolationOptions.PerFloatFeatureConfig.size(), 1);
         UNIT_ASSERT_VALUES_EQUAL(interpolationOptions.PerFloatFeatureConfig[0].FloatFeatureIndex, 1);
         UNIT_ASSERT_DOUBLES_EQUAL(interpolationOptions.PerFloatFeatureConfig[0].Span, 1.0, 1e-12);
+        UNIT_ASSERT_VALUES_EQUAL(
+            interpolationOptions.PerFloatFeatureConfig[0].SpanMode,
+            EFloatFeaturesInterpolationSpanMode::Absolute
+        );
 
         TStringStream stream;
         model.Save(&stream);
@@ -158,6 +166,10 @@ Y_UNIT_TEST_SUITE(TModelSerialization) {
         UNIT_ASSERT_VALUES_EQUAL(loadedOptions.PerFloatFeatureConfig.size(), 1);
         UNIT_ASSERT_VALUES_EQUAL(loadedOptions.PerFloatFeatureConfig[0].FloatFeatureIndex, 1);
         UNIT_ASSERT_DOUBLES_EQUAL(loadedOptions.PerFloatFeatureConfig[0].Span, 1.0, 1e-12);
+        UNIT_ASSERT_VALUES_EQUAL(
+            loadedOptions.PerFloatFeatureConfig[0].SpanMode,
+            EFloatFeaturesInterpolationSpanMode::Absolute
+        );
 
         const auto loadedFeatureIt = std::find_if(
             loadedModel.ModelTrees->GetFloatFeatures().begin(),

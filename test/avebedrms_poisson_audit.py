@@ -109,7 +109,7 @@ if __name__ == "__main__":
         **base_params,
         interpolation_enabled=True,
         interpolation_type="Linear",
-        interpolation_span_mode=args.span_mode,
+        interpolation_span_mode={args.feature: args.span_mode},
         interpolation_span_per_float_feature={X.columns.get_loc(args.feature): args.span},
         interpolation_min_span=0.0,
     )

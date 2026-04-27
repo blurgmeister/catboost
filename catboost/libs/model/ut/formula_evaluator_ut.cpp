@@ -201,7 +201,11 @@ TFullModel TrainBinaryClassificationInterpolationLeakModel() {
     params.InsertValue("thread_count", 1);
     params.InsertValue("interpolation_enabled", true);
     params.InsertValue("interpolation_type", "Linear");
-    params.InsertValue("interpolation_span_mode", "Absolute");
+    {
+        NJson::TJsonValue spanModes(NJson::EJsonValueType::JSON_MAP);
+        spanModes["0"] = "Absolute";
+        params.InsertValue("interpolation_span_mode", std::move(spanModes));
+    }
     params.InsertValue("interpolation_min_span", 0.0);
     {
         NJson::TJsonValue spans(NJson::EJsonValueType::JSON_MAP);
@@ -243,7 +247,11 @@ TFullModel TrainRegressionInterpolationLeakModel() {
     params.InsertValue("thread_count", 1);
     params.InsertValue("interpolation_enabled", true);
     params.InsertValue("interpolation_type", "Linear");
-    params.InsertValue("interpolation_span_mode", "Absolute");
+    {
+        NJson::TJsonValue spanModes(NJson::EJsonValueType::JSON_MAP);
+        spanModes["0"] = "Absolute";
+        params.InsertValue("interpolation_span_mode", std::move(spanModes));
+    }
     params.InsertValue("interpolation_min_span", 0.0);
     {
         NJson::TJsonValue spans(NJson::EJsonValueType::JSON_MAP);
@@ -364,6 +372,9 @@ void EnableInterpolation(
     options.SpanMode = spanMode;
     options.MinSpan = minSpan;
     options.PerFloatFeatureConfig = perFeatureConfig;
+    for (auto& config : options.PerFloatFeatureConfig) {
+        config.SpanMode = spanMode;
+    }
     model->ModelTrees.GetMutable()->SetFloatFeaturesInterpolationOptions(std::move(options));
     model->UpdateDynamicData();
 }
@@ -617,6 +628,32 @@ Y_UNIT_TEST_SUITE(TObliviousTreeModel) {
         TVector<TVector<float>> data = {{-1.f}, {0.f}, {1.f}, {2.f}, {3.f}};
         TVector<double> expectedPredicts = {0.0, 2.5, 5.0, 7.5, 10.0};
         TVector<ui32> expectedLeafIndexes = {0, 0, 0, 1, 1};
+        const auto features = GetFeatureRef(data);
+        CheckFlatCalcResult(model, expectedPredicts, expectedLeafIndexes, features);
+
+        TStringStream stream;
+        model.Save(&stream);
+        TFullModel loadedModel;
+        loadedModel.Load(&stream);
+        CheckFlatCalcResult(loadedModel, expectedPredicts, expectedLeafIndexes, features);
+    }
+
+    Y_UNIT_TEST(TestTwoSplitPerFeatureSpanModes) {
+        auto model = BuildTwoSplitFloatModel(10.0f, 20.0f, {0.0, 10.0, 100.0, 110.0});
+        TFloatFeaturesInterpolationOptions options;
+        options.Enabled = true;
+        options.Type = EFloatFeaturesInterpolationType::Linear;
+        options.MinSpan = 0.0;
+        options.PerFloatFeatureConfig = {
+            {0, 2.0, EFloatFeaturesInterpolationSpanMode::Absolute},
+            {1, 0.1, EFloatFeaturesInterpolationSpanMode::Relative}
+        };
+        model.ModelTrees.GetMutable()->SetFloatFeaturesInterpolationOptions(std::move(options));
+        model.UpdateDynamicData();
+
+        TVector<TVector<float>> data = {{11.f, 21.f}};
+        TVector<double> expectedPredicts = {82.5};
+        TVector<ui32> expectedLeafIndexes = {3};
         const auto features = GetFeatureRef(data);
         CheckFlatCalcResult(model, expectedPredicts, expectedLeafIndexes, features);
 

@@ -40,7 +40,7 @@ NCatboostOptions::TObliviousTreeLearnerOptions::TObliviousTreeLearnerOptions(ETa
       , FeaturePenalties("penalties", TFeaturePenaltiesOptions())
       , FloatFeaturesInterpolationEnabled("interpolation_enabled", false)
       , FloatFeaturesInterpolationType("interpolation_type", EFloatFeaturesInterpolationType::Linear)
-      , FloatFeaturesInterpolationSpanMode("interpolation_span_mode", EFloatFeaturesInterpolationSpanMode::Absolute)
+      , FloatFeaturesInterpolationSpanMode("interpolation_span_mode", {})
       , FloatFeaturesInterpolationSpanPerFeature("interpolation_span_per_float_feature", {})
       , FloatFeaturesInterpolationMinSpan("interpolation_min_span", 0.0)
       , TaskType("task_type", taskType)
