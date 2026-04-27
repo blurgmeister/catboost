@@ -102,14 +102,14 @@ def run_span_mode_test():
         {
             "mode_name": "Relative",
             "interpolation_span_mode": {feature: "Relative" for feature in feature_names},
-            "interpolation_span_per_float_feature": {
+            "interpolation_span": {
                 feature_indices[feature]: 0.25 for feature in feature_names
             },
         },
         {
             "mode_name": "Absolute",
             "interpolation_span_mode": {feature: "Absolute" for feature in feature_names},
-            "interpolation_span_per_float_feature": {
+            "interpolation_span": {
                 feature_indices[feature]: 10.0 for feature in feature_names
             },
         },
@@ -140,7 +140,7 @@ def run_span_mode_test():
         params.update(
             {
                 "interpolation_span_mode": run["interpolation_span_mode"],
-                "interpolation_span_per_float_feature": run["interpolation_span_per_float_feature"],
+                "interpolation_span": run["interpolation_span"],
             }
         )
 

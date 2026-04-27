@@ -210,7 +210,7 @@ TFullModel TrainBinaryClassificationInterpolationLeakModel() {
     {
         NJson::TJsonValue spans(NJson::EJsonValueType::JSON_MAP);
         spans["0"] = 0.5;
-        params.InsertValue("interpolation_span_per_float_feature", std::move(spans));
+        params.InsertValue("interpolation_span", std::move(spans));
     }
 
     TFullModel model;
@@ -256,7 +256,7 @@ TFullModel TrainRegressionInterpolationLeakModel() {
     {
         NJson::TJsonValue spans(NJson::EJsonValueType::JSON_MAP);
         spans["0"] = 0.5;
-        params.InsertValue("interpolation_span_per_float_feature", std::move(spans));
+        params.InsertValue("interpolation_span", std::move(spans));
     }
 
     TFullModel model;

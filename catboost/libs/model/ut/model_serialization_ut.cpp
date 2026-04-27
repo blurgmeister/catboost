@@ -119,7 +119,7 @@ Y_UNIT_TEST_SUITE(TModelSerialization) {
         {
             NJson::TJsonValue spans(NJson::EJsonValueType::JSON_MAP);
             spans["2"] = 1.0;
-            params.InsertValue("interpolation_span_per_float_feature", std::move(spans));
+            params.InsertValue("interpolation_span", std::move(spans));
         }
 
         TFullModel model;

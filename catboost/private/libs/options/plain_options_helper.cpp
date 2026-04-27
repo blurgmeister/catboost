@@ -376,7 +376,7 @@ void NCatboostOptions::PlainJsonToOptions(
     CopyOption(plainOptions, "interpolation_enabled", &treeOptions, &seenKeys);
     CopyOption(plainOptions, "interpolation_type", &treeOptions, &seenKeys);
     CopyOption(plainOptions, "interpolation_span_mode", &treeOptions, &seenKeys);
-    CopyOption(plainOptions, "interpolation_span_per_float_feature", &treeOptions, &seenKeys);
+    CopyOption(plainOptions, "interpolation_span", &treeOptions, &seenKeys);
     CopyOption(plainOptions, "interpolation_min_span", &treeOptions, &seenKeys);
 
     auto& bootstrapOptions = treeOptions["bootstrap"];
@@ -757,8 +757,8 @@ void NCatboostOptions::ConvertOptionsToPlainJson(
         CopyOption(treeOptions, "interpolation_span_mode", &plainOptionsJson, &seenKeys);
         DeleteSeenOption(&optionsCopyTree, "interpolation_span_mode");
 
-        CopyOption(treeOptions, "interpolation_span_per_float_feature", &plainOptionsJson, &seenKeys);
-        DeleteSeenOption(&optionsCopyTree, "interpolation_span_per_float_feature");
+        CopyOption(treeOptions, "interpolation_span", &plainOptionsJson, &seenKeys);
+        DeleteSeenOption(&optionsCopyTree, "interpolation_span");
 
         CopyOption(treeOptions, "interpolation_min_span", &plainOptionsJson, &seenKeys);
         DeleteSeenOption(&optionsCopyTree, "interpolation_min_span");

@@ -1265,7 +1265,7 @@ def test_predict_on_reused_mutable_input_matches_fresh_copy_with_interpolation()
         interpolation_type='Linear',
         interpolation_span_mode={0: 'Absolute'},
         interpolation_min_span=0.0,
-        interpolation_span_per_float_feature={0: 0.5}
+        interpolation_span={0: 0.5}
     )
     model.fit(X_df, y)
 
@@ -1335,7 +1335,7 @@ def test_partial_dependence_matches_manual_bruteforce_with_interpolation():
         interpolation_type='Linear',
         interpolation_span_mode={0: 'Absolute'},
         interpolation_min_span=0.0,
-        interpolation_span_per_float_feature={0: 0.5}
+        interpolation_span={0: 0.5}
     )
     model.fit(X, y)
 
@@ -8583,7 +8583,7 @@ def test_interpolation_options_are_exposed_in_python_init(model_cls):
         interpolation_enabled=True,
         interpolation_type='Linear',
         interpolation_span_mode={0: 'Absolute', 2: 'Relative'},
-        interpolation_span_per_float_feature={0: 0.5, 2: 1.25},
+        interpolation_span={0: 0.5, 2: 1.25},
         interpolation_min_span=0.1
     )
 
@@ -8592,7 +8592,7 @@ def test_interpolation_options_are_exposed_in_python_init(model_cls):
     assert params['interpolation_enabled'] is True
     assert params['interpolation_type'] == 'Linear'
     assert params['interpolation_span_mode'] == {0: 'Absolute', 2: 'Relative'}
-    assert params['interpolation_span_per_float_feature'] == {0: 0.5, 2: 1.25}
+    assert params['interpolation_span'] == {0: 0.5, 2: 1.25}
     assert params['interpolation_min_span'] == 0.1
 
 
@@ -8611,7 +8611,7 @@ def test_interpolation_options_roundtrip_to_training_params():
         interpolation_enabled=True,
         interpolation_type='Sigmoid',
         interpolation_span_mode={'f0': 'Relative'},
-        interpolation_span_per_float_feature={'f0': 0.2},
+        interpolation_span={'f0': 0.2},
         interpolation_min_span=0.05
     )
     model.fit(train_pool)
@@ -8620,7 +8620,7 @@ def test_interpolation_options_roundtrip_to_training_params():
     assert params['interpolation_enabled'] is True
     assert params['interpolation_type'] == 'Sigmoid'
     assert params['interpolation_span_mode'] == {'0': 'Relative'}
-    assert params['interpolation_span_per_float_feature'] == {'0': 0.2}
+    assert params['interpolation_span'] == {'0': 0.2}
     assert params['interpolation_min_span'] == 0.05
 
 

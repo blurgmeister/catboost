@@ -110,7 +110,7 @@ if __name__ == "__main__":
         interpolation_enabled=True,
         interpolation_type="Linear",
         interpolation_span_mode={args.feature: args.span_mode},
-        interpolation_span_per_float_feature={X.columns.get_loc(args.feature): args.span},
+        interpolation_span={X.columns.get_loc(args.feature): args.span},
         interpolation_min_span=0.0,
     )
     print("fitting_interpolated_model", flush=True)

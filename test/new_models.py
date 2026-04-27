@@ -32,10 +32,10 @@ def create_baseline_plots():
                     "Latitude": "Absolute", "Longitude": "Absolute",
                     "MedInc": "Relative", "Population": "Relative"
                 },
-                "interpolation_span_per_float_feature": {"AveBedrms" : 0.05, "AveOccup" : 0.2 ,
-                                                         "AveRooms" : 0.16, "HouseAge" : 0.25,
-                                                         "Latitude" : 1, "Longitude" : 1,
-                                                         "MedInc" : 0.25, "Population" : 0.25},
+                "interpolation_span": {"AveBedrms" : 0.05, "AveOccup" : 0.2 ,
+                                       "AveRooms" : 0.16, "HouseAge" : 0.25,
+                                       "Latitude" : 1, "Longitude" : 1,
+                                       "MedInc" : 0.25, "Population" : 0.25},
 
                 "monotone_constraints": {"AveBedrms": 1, "AveOccup": -1, "HouseAge": 1,
                                           "Latitude": -1, "Longitude": -1, "MedInc": 1,
@@ -60,12 +60,12 @@ def create_baseline_plots():
                     "worst perimeter": "Relative", "worst radius": "Relative",
                     "worst texture": "Relative", "mean fractal dimension": "Absolute"
                 },
-                "interpolation_span_per_float_feature": {"area error" : 0.25, "mean concave points" : 0.5,
-                                                         "mean texture" : 0.2, "perimeter error" : 0.3,
-                                                         "radius error" : 1, "worst area" : 0.5,
-                                                         "worst concave points" : 0.5, "worst concavity" : 1,
-                                                         "worst perimeter" : 0.5, "worst radius" : 0.25,
-                                                         "worst texture" : 0.3, "mean fractal dimension" : 0.025},
+                "interpolation_span": {"area error" : 0.25, "mean concave points" : 0.5,
+                                       "mean texture" : 0.2, "perimeter error" : 0.3,
+                                       "radius error" : 1, "worst area" : 0.5,
+                                       "worst concave points" : 0.5, "worst concavity" : 1,
+                                       "worst perimeter" : 0.5, "worst radius" : 0.25,
+                                       "worst texture" : 0.3, "mean fractal dimension" : 0.025},
 
                 "monotone_constraints": {"mean concave points" : -1, "mean fractal dimension": 1,
                                        "perimeter error" : -1,
@@ -94,9 +94,9 @@ def create_baseline_plots():
         for depth in depths:
             print(f"  Training model with depth {depth}...")
             params = task["params"].copy()
-            params["interpolation_span_per_float_feature"] = {
+            params["interpolation_span"] = {
                 X.columns.get_loc(feature_name): span
-                for feature_name, span in params["interpolation_span_per_float_feature"].items()
+                for feature_name, span in params["interpolation_span"].items()
             }
             params["max_depth"] = depth
             params["n_estimators"] = 1000 # Increase estimators to allow early stopping to work

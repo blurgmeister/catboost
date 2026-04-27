@@ -56,7 +56,7 @@ Recommended parameter families:
 - `interpolation_enabled`
 - `interpolation_type`: `linear` or `sigmoid`
 - `interpolation_span_mode`: `absolute` or `relative`
-- `interpolation_span_per_float_feature`
+- `interpolation_span`
 - `interpolation_features`
 - `interpolation_min_span`
 

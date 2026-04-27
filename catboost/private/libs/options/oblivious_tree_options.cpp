@@ -41,7 +41,7 @@ NCatboostOptions::TObliviousTreeLearnerOptions::TObliviousTreeLearnerOptions(ETa
       , FloatFeaturesInterpolationEnabled("interpolation_enabled", false)
       , FloatFeaturesInterpolationType("interpolation_type", EFloatFeaturesInterpolationType::Linear)
       , FloatFeaturesInterpolationSpanMode("interpolation_span_mode", {})
-      , FloatFeaturesInterpolationSpanPerFeature("interpolation_span_per_float_feature", {})
+      , FloatFeaturesInterpolationSpanPerFeature("interpolation_span", {})
       , FloatFeaturesInterpolationMinSpan("interpolation_min_span", 0.0)
       , TaskType("task_type", taskType)
 {
@@ -184,7 +184,7 @@ void NCatboostOptions::TObliviousTreeLearnerOptions::Validate() const {
         );
         CB_ENSURE(
             !FloatFeaturesInterpolationSpanPerFeature.Get().empty(),
-            "interpolation_enabled requires interpolation_span_per_float_feature to be specified"
+            "interpolation_enabled requires interpolation_span to be specified"
         );
     }
 }

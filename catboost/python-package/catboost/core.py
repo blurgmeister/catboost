@@ -2446,11 +2446,11 @@ def _check_param_types(params):
     _cast_value_to_list_of_strings(params, 'custom_loss')
     _cast_value_to_list_of_strings(params, 'custom_metric')
     _cast_value_to_list_of_strings(params, 'per_float_feature_quantization')
-    if 'interpolation_span_per_float_feature' in params:
-        if not isinstance(params['interpolation_span_per_float_feature'], (Mapping, MutableMapping)):
+    if 'interpolation_span' in params:
+        if not isinstance(params['interpolation_span'], (Mapping, MutableMapping)):
             raise CatBoostError(
-                "Invalid `interpolation_span_per_float_feature` type={} : must be dict-like mapping of float feature index to span."
-                .format(type(params['interpolation_span_per_float_feature']))
+                "Invalid `interpolation_span` type={} : must be dict-like mapping of float feature index to span."
+                .format(type(params['interpolation_span']))
             )
     if 'interpolation_span_mode' in params:
         if not isinstance(params['interpolation_span_mode'], (Mapping, MutableMapping)):
@@ -2624,7 +2624,7 @@ class CatBoost(_CatBoostBase):
             raise CatBoostError("X is empty.")
 
         _translate_feature_keyed_dict_keys(params, 'interpolation_span_mode', train_pool.get_feature_names())
-        _translate_feature_keyed_dict_keys(params, 'interpolation_span_per_float_feature', train_pool.get_feature_names())
+        _translate_feature_keyed_dict_keys(params, 'interpolation_span', train_pool.get_feature_names())
 
         allow_clear_pool = not isinstance(X, Pool)
 
@@ -4938,7 +4938,7 @@ class CatBoostClassifier(CatBoost):
     interpolation_span_mode : dict, [default=None]
         Mapping from flat feature index or feature name to interpolation span mode for float features.
         Possible values are 'Absolute' and 'Relative'.
-    interpolation_span_per_float_feature : dict, [default=None]
+    interpolation_span : dict, [default=None]
         Mapping from flat feature index or feature name to interpolation span for float features.
         Example: {0: 0.5, 3: 1.0}
     interpolation_min_span : float, [default=0]
@@ -5376,7 +5376,7 @@ class CatBoostClassifier(CatBoost):
         interpolation_enabled=None,
         interpolation_type=None,
         interpolation_span_mode=None,
-        interpolation_span_per_float_feature=None,
+        interpolation_span=None,
         interpolation_min_span=None,
         input_borders=None,
         output_borders=None,
@@ -6023,7 +6023,7 @@ class CatBoostRegressor(CatBoost):
         interpolation_enabled=None,
         interpolation_type=None,
         interpolation_span_mode=None,
-        interpolation_span_per_float_feature=None,
+        interpolation_span=None,
         interpolation_min_span=None,
         input_borders=None,
         output_borders=None,
@@ -6439,7 +6439,7 @@ class CatBoostRanker(CatBoost):
         interpolation_enabled=None,
         interpolation_type=None,
         interpolation_span_mode=None,
-        interpolation_span_per_float_feature=None,
+        interpolation_span=None,
         interpolation_min_span=None,
         input_borders=None,
         output_borders=None,
