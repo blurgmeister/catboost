@@ -217,6 +217,8 @@ __device__ __forceinline__ double CalcInterpolatedRightWeightForDocument(
     ui32 interpolationSpansCount,
     const ui8* __restrict__ interpolationSpanModes,
     ui32 interpolationSpanModesCount,
+    const double* __restrict__ interpolationMinSpans,
+    ui32 interpolationMinSpansCount,
     bool useSigmoid,
     double minSpan
 ) {
@@ -238,8 +240,11 @@ __device__ __forceinline__ double CalcInterpolatedRightWeightForDocument(
 
     const double border = __ldg(flatBorders + __ldg(bordersOffsets + bucketIdx) + split.FeatureVal - 1);
     const bool useRelativeSpan = floatFeatureIdx < interpolationSpanModesCount && __ldg(interpolationSpanModes + floatFeatureIdx) != 0;
+    const double featureMinSpan = floatFeatureIdx < interpolationMinSpansCount
+        ? __ldg(interpolationMinSpans + floatFeatureIdx)
+        : minSpan;
     const double actualSpan = useRelativeSpan
-        ? fmax(minSpan, configuredSpan * fabs(border))
+        ? fmax(featureMinSpan, configuredSpan * fabs(border))
         : configuredSpan;
     if (actualSpan <= 0.0) {
         return CalcHardRightWeightForDocument(quantizedFeatures, bucketsCount, split, docId);
@@ -349,6 +354,8 @@ __global__ void EvalObliviousTreesWithInterpolation(
     const ui32 interpolationSpansCount,
     const ui8* __restrict__ interpolationSpanModes,
     const ui32 interpolationSpanModesCount,
+    const double* __restrict__ interpolationMinSpans,
+    const ui32 interpolationMinSpansCount,
     const bool useSigmoid,
     const double minSpan,
     const ui32 treeStart,
@@ -384,6 +391,8 @@ __global__ void EvalObliviousTreesWithInterpolation(
                 interpolationSpansCount,
                 interpolationSpanModes,
                 interpolationSpanModesCount,
+                interpolationMinSpans,
+                interpolationMinSpansCount,
                 useSigmoid,
                 minSpan
             );
@@ -543,6 +552,8 @@ void TGPUCatboostEvaluationContext::EvalQuantizedData(
                 GPUModelData.FloatFeatureInterpolationSpans.Size(),
                 GPUModelData.FloatFeatureInterpolationSpanModes.Get(),
                 GPUModelData.FloatFeatureInterpolationSpanModes.Size(),
+                GPUModelData.FloatFeatureInterpolationMinSpans.Get(),
+                GPUModelData.FloatFeatureInterpolationMinSpans.Size(),
                 GPUModelData.InterpolationUseSigmoid,
                 GPUModelData.InterpolationMinSpan,
                 treeStart,
@@ -573,6 +584,8 @@ void TGPUCatboostEvaluationContext::EvalQuantizedData(
                 GPUModelData.FloatFeatureInterpolationSpans.Size(),
                 GPUModelData.FloatFeatureInterpolationSpanModes.Get(),
                 GPUModelData.FloatFeatureInterpolationSpanModes.Size(),
+                GPUModelData.FloatFeatureInterpolationMinSpans.Get(),
+                GPUModelData.FloatFeatureInterpolationMinSpans.Size(),
                 GPUModelData.InterpolationUseSigmoid,
                 GPUModelData.InterpolationMinSpan,
                 treeStart,
@@ -704,6 +717,8 @@ void TGPUCatboostEvaluationContext::EvalData(
             GPUModelData.FloatFeatureInterpolationSpans.Size(),
             GPUModelData.FloatFeatureInterpolationSpanModes.Get(),
             GPUModelData.FloatFeatureInterpolationSpanModes.Size(),
+            GPUModelData.FloatFeatureInterpolationMinSpans.Get(),
+            GPUModelData.FloatFeatureInterpolationMinSpans.Size(),
             GPUModelData.InterpolationUseSigmoid,
             GPUModelData.InterpolationMinSpan,
             treeStart,
@@ -734,6 +749,8 @@ void TGPUCatboostEvaluationContext::EvalData(
             GPUModelData.FloatFeatureInterpolationSpans.Size(),
             GPUModelData.FloatFeatureInterpolationSpanModes.Get(),
             GPUModelData.FloatFeatureInterpolationSpanModes.Size(),
+            GPUModelData.FloatFeatureInterpolationMinSpans.Get(),
+            GPUModelData.FloatFeatureInterpolationMinSpans.Size(),
             GPUModelData.InterpolationUseSigmoid,
             GPUModelData.InterpolationMinSpan,
             treeStart,

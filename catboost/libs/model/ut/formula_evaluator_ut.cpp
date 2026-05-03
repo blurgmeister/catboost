@@ -374,6 +374,9 @@ void EnableInterpolation(
     options.PerFloatFeatureConfig = perFeatureConfig;
     for (auto& config : options.PerFloatFeatureConfig) {
         config.SpanMode = spanMode;
+        if (config.MinSpan <= 0.0) {
+            config.MinSpan = minSpan;
+        }
     }
     model->ModelTrees.GetMutable()->SetFloatFeaturesInterpolationOptions(std::move(options));
     model->UpdateDynamicData();
@@ -638,6 +641,29 @@ Y_UNIT_TEST_SUITE(TObliviousTreeModel) {
         CheckFlatCalcResult(loadedModel, expectedPredicts, expectedLeafIndexes, features);
     }
 
+    Y_UNIT_TEST(TestSingleSplitLinearInterpolationRelativeSpanUsesPerFeatureMinSpan) {
+        auto model = BuildSingleSplitFloatModel(1.0f, 0.0, 10.0);
+        EnableInterpolation(
+            &model,
+            EFloatFeaturesInterpolationType::Linear,
+            EFloatFeaturesInterpolationSpanMode::Relative,
+            0.0,
+            {{0, 0.1, EFloatFeaturesInterpolationSpanMode::Relative, 2.0}}
+        );
+
+        TVector<TVector<float>> data = {{-1.f}, {0.f}, {1.f}, {2.f}, {3.f}};
+        TVector<double> expectedPredicts = {0.0, 2.5, 5.0, 7.5, 10.0};
+        TVector<ui32> expectedLeafIndexes = {0, 0, 0, 1, 1};
+        const auto features = GetFeatureRef(data);
+        CheckFlatCalcResult(model, expectedPredicts, expectedLeafIndexes, features);
+
+        TStringStream stream;
+        model.Save(&stream);
+        TFullModel loadedModel;
+        loadedModel.Load(&stream);
+        CheckFlatCalcResult(loadedModel, expectedPredicts, expectedLeafIndexes, features);
+    }
+
     Y_UNIT_TEST(TestTwoSplitPerFeatureSpanModes) {
         auto model = BuildTwoSplitFloatModel(10.0f, 20.0f, {0.0, 10.0, 100.0, 110.0});
         TFloatFeaturesInterpolationOptions options;
@@ -645,8 +671,8 @@ Y_UNIT_TEST_SUITE(TObliviousTreeModel) {
         options.Type = EFloatFeaturesInterpolationType::Linear;
         options.MinSpan = 0.0;
         options.PerFloatFeatureConfig = {
-            {0, 2.0, EFloatFeaturesInterpolationSpanMode::Absolute},
-            {1, 0.1, EFloatFeaturesInterpolationSpanMode::Relative}
+            {0, 2.0, EFloatFeaturesInterpolationSpanMode::Absolute, 0.0},
+            {1, 0.1, EFloatFeaturesInterpolationSpanMode::Relative, 0.0}
         };
         model.ModelTrees.GetMutable()->SetFloatFeaturesInterpolationOptions(std::move(options));
         model.UpdateDynamicData();

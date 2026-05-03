@@ -31,6 +31,7 @@ struct TGPUModelData : public TThrRefBase {
     TCudaVec<ui32> FloatFeatureForBucketIdx;
     TCudaVec<double> FloatFeatureInterpolationSpans;
     TCudaVec<ui8> FloatFeatureInterpolationSpanModes;
+    TCudaVec<double> FloatFeatureInterpolationMinSpans;
     TVector<bool> UsedInModel;
 
     size_t ApproxDimension = 0;

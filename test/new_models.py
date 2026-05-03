@@ -26,6 +26,11 @@ def create_baseline_plots():
                 "random_seed": random_seed,
                 "interpolation_enabled": True,
                 "interpolation_type": "Sigmoid",
+                "interpolation_min_span": {
+                    "AveBedrms": 0.2, "AveOccup": 0.0001,
+                    "AveRooms": 0.0001, "HouseAge": 0.0001,
+                    "MedInc": 2, "Population": 0.0001
+                },
                 "interpolation_span_mode": {
                     "AveBedrms": "Relative", "AveOccup": "Relative",
                     "AveRooms": "Relative", "HouseAge": "Relative",
@@ -52,6 +57,7 @@ def create_baseline_plots():
                 "random_seed": random_seed,
                 "interpolation_enabled": True,
                 "interpolation_type": "Sigmoid",
+                "interpolation_min_span": 0,
                 "interpolation_span_mode": {
                     "area error": "Relative", "mean concave points": "Relative",
                     "mean texture": "Relative", "perimeter error": "Relative",

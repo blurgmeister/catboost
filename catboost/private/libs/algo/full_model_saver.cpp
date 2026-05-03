@@ -25,10 +25,31 @@
 #include <util/generic/hash_set.h>
 #include <util/generic/ptr.h>
 #include <util/generic/xrange.h>
+#include <util/string/cast.h>
 
 
 namespace {
     using namespace NCB;
+
+    static double ReadFloatFeaturesInterpolationMinSpan(const NJson::TJsonValue& value) {
+        return FromJson<double>(value);
+    }
+
+    static double GetFloatFeaturesInterpolationGlobalMinSpan(const NJson::TJsonValue& interpolationMinSpan) {
+        return interpolationMinSpan.IsMap() ? 0.0 : ReadFloatFeaturesInterpolationMinSpan(interpolationMinSpan);
+    }
+
+    static TMap<ui32, double> GetFloatFeaturesInterpolationMinSpanPerFeature(
+        const NJson::TJsonValue& interpolationMinSpan
+    ) {
+        TMap<ui32, double> result;
+        if (interpolationMinSpan.IsMap()) {
+            for (const auto& [flatFeatureIdx, minSpan] : interpolationMinSpan.GetMap()) {
+                result[FromString<ui32>(flatFeatureIdx)] = ReadFloatFeaturesInterpolationMinSpan(minSpan);
+            }
+        }
+        return result;
+    }
 
     static TFloatFeaturesInterpolationOptions BuildFloatFeaturesInterpolationOptions(
         const NCatboostOptions::TCatBoostOptions& options,
@@ -40,7 +61,9 @@ namespace {
         interpolationOptions.Enabled = treeOptions.FloatFeaturesInterpolationEnabled.Get();
         interpolationOptions.Type = treeOptions.FloatFeaturesInterpolationType.Get();
         interpolationOptions.SpanMode = EFloatFeaturesInterpolationSpanMode::Absolute;
-        interpolationOptions.MinSpan = treeOptions.FloatFeaturesInterpolationMinSpan.Get();
+        interpolationOptions.MinSpan = GetFloatFeaturesInterpolationGlobalMinSpan(
+            treeOptions.FloatFeaturesInterpolationMinSpan.Get()
+        );
 
         if (!interpolationOptions.Enabled) {
             return interpolationOptions;
@@ -83,6 +106,16 @@ namespace {
             }
         }
 
+        TMap<ui32, double> minSpansByInternalFloatFeatureIdx;
+        for (const auto& [flatFeatureIdx, minSpan] : GetFloatFeaturesInterpolationMinSpanPerFeature(
+            treeOptions.FloatFeaturesInterpolationMinSpan.Get()
+        )) {
+            auto internalFloatFeatureIdx = getInternalFloatFeatureIdx(flatFeatureIdx);
+            if (internalFloatFeatureIdx.Defined()) {
+                minSpansByInternalFloatFeatureIdx[*internalFloatFeatureIdx] = minSpan;
+            }
+        }
+
         for (const auto& [flatFeatureIdx, span] : treeOptions.FloatFeaturesInterpolationSpanPerFeature.Get()) {
             auto internalFloatFeatureIdx = getInternalFloatFeatureIdx(flatFeatureIdx);
             if (!internalFloatFeatureIdx.Defined()) {
@@ -90,10 +123,12 @@ namespace {
             }
             if (usedFloatFeatures.contains(*internalFloatFeatureIdx)) {
                 const auto* spanMode = spanModesByInternalFloatFeatureIdx.FindPtr(*internalFloatFeatureIdx);
+                const auto* minSpan = minSpansByInternalFloatFeatureIdx.FindPtr(*internalFloatFeatureIdx);
                 interpolationOptions.PerFloatFeatureConfig.push_back({
                     *internalFloatFeatureIdx,
                     span,
-                    spanMode ? *spanMode : EFloatFeaturesInterpolationSpanMode::Absolute
+                    spanMode ? *spanMode : EFloatFeaturesInterpolationSpanMode::Absolute,
+                    minSpan ? *minSpan : interpolationOptions.MinSpan
                 });
             }
         }

@@ -33,6 +33,7 @@ table TFloatFeatureInterpolationConfig {
     FloatFeatureIndex:uint32;
     Span:double;
     SpanMode:EFloatFeaturesInterpolationSpanMode = Absolute;
+    MinSpan:double = 0;
 }
 
 table TModelTrees {

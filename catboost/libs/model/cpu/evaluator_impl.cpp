@@ -801,8 +801,11 @@ namespace NCB::NModelEvaluation {
         const auto spanMode = floatFeatureIdx < applyData.FloatFeatureInterpolationSpanModes.size()
             ? applyData.FloatFeatureInterpolationSpanModes[floatFeatureIdx]
             : interpolationOptions.SpanMode;
+        const double minSpan = floatFeatureIdx < applyData.FloatFeatureInterpolationMinSpans.size()
+            ? applyData.FloatFeatureInterpolationMinSpans[floatFeatureIdx]
+            : interpolationOptions.MinSpan;
         const double actualSpan = spanMode == EFloatFeaturesInterpolationSpanMode::Relative
-            ? Max(interpolationOptions.MinSpan, configuredSpan * std::abs(border))
+            ? Max(minSpan, configuredSpan * std::abs(border))
             : configuredSpan;
         if (actualSpan <= 0.0) {
             return CalcHardRightWeight(binFeatures, docCountInBlock, repackedSplit, docId);

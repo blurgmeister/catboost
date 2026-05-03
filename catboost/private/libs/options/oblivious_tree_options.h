@@ -4,6 +4,8 @@
 #include "bootstrap_options.h"
 #include "feature_penalties_options.h"
 
+#include <library/cpp/json/json_value.h>
+
 #include <util/system/types.h>
 
 namespace NJson {
@@ -63,7 +65,7 @@ namespace NCatboostOptions {
         TOption<EFloatFeaturesInterpolationType> FloatFeaturesInterpolationType;
         TOption<TMap<ui32, EFloatFeaturesInterpolationSpanMode>> FloatFeaturesInterpolationSpanMode;
         TOption<TMap<ui32, double>> FloatFeaturesInterpolationSpanPerFeature;
-        TOption<double> FloatFeaturesInterpolationMinSpan;
+        TOption<NJson::TJsonValue> FloatFeaturesInterpolationMinSpan;
 
     private:
         TOption<ETaskType> TaskType;

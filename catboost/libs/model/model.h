@@ -98,9 +98,11 @@ struct TFloatFeatureInterpolationConfig {
     ui32 FloatFeatureIndex = 0;
     double Span = 0.0;
     EFloatFeaturesInterpolationSpanMode SpanMode = EFloatFeaturesInterpolationSpanMode::Absolute;
+    double MinSpan = 0.0;
 
     bool operator==(const TFloatFeatureInterpolationConfig& other) const {
-        return std::tie(FloatFeatureIndex, Span, SpanMode) == std::tie(other.FloatFeatureIndex, other.Span, other.SpanMode);
+        return std::tie(FloatFeatureIndex, Span, SpanMode, MinSpan) ==
+            std::tie(other.FloatFeatureIndex, other.Span, other.SpanMode, other.MinSpan);
     }
 
     bool operator!=(const TFloatFeatureInterpolationConfig& other) const {
@@ -205,6 +207,7 @@ public:
         // Negative span means interpolation is disabled for the float feature.
         TVector<double> FloatFeatureInterpolationSpans;
         TVector<EFloatFeaturesInterpolationSpanMode> FloatFeatureInterpolationSpanModes;
+        TVector<double> FloatFeatureInterpolationMinSpans;
 
         /**
          * List all unique CTR bases (feature combination + ctr type) in model

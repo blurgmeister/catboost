@@ -8584,7 +8584,7 @@ def test_interpolation_options_are_exposed_in_python_init(model_cls):
         interpolation_type='Linear',
         interpolation_span_mode={0: 'Absolute', 2: 'Relative'},
         interpolation_span={0: 0.5, 2: 1.25},
-        interpolation_min_span=0.1
+        interpolation_min_span={0: 0.0, 2: 0.1}
     )
 
     params = model.get_params()
@@ -8593,7 +8593,7 @@ def test_interpolation_options_are_exposed_in_python_init(model_cls):
     assert params['interpolation_type'] == 'Linear'
     assert params['interpolation_span_mode'] == {0: 'Absolute', 2: 'Relative'}
     assert params['interpolation_span'] == {0: 0.5, 2: 1.25}
-    assert params['interpolation_min_span'] == 0.1
+    assert params['interpolation_min_span'] == {0: 0.0, 2: 0.1}
 
 
 def test_interpolation_options_roundtrip_to_training_params():
@@ -8612,7 +8612,7 @@ def test_interpolation_options_roundtrip_to_training_params():
         interpolation_type='Sigmoid',
         interpolation_span_mode={'f0': 'Relative'},
         interpolation_span={'f0': 0.2},
-        interpolation_min_span=0.05
+        interpolation_min_span={'f0': 0.05}
     )
     model.fit(train_pool)
 
@@ -8621,7 +8621,7 @@ def test_interpolation_options_roundtrip_to_training_params():
     assert params['interpolation_type'] == 'Sigmoid'
     assert params['interpolation_span_mode'] == {'0': 'Relative'}
     assert params['interpolation_span'] == {'0': 0.2}
-    assert params['interpolation_min_span'] == 0.05
+    assert params['interpolation_min_span'] == {'0': 0.05}
 
 
 @pytest.mark.parametrize('metric', ['MAE', 'RMSE', 'CrossEntropy', 'AUC'])

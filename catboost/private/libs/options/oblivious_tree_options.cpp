@@ -42,7 +42,7 @@ NCatboostOptions::TObliviousTreeLearnerOptions::TObliviousTreeLearnerOptions(ETa
       , FloatFeaturesInterpolationType("interpolation_type", EFloatFeaturesInterpolationType::Linear)
       , FloatFeaturesInterpolationSpanMode("interpolation_span_mode", {})
       , FloatFeaturesInterpolationSpanPerFeature("interpolation_span", {})
-      , FloatFeaturesInterpolationMinSpan("interpolation_min_span", 0.0)
+      , FloatFeaturesInterpolationMinSpan("interpolation_min_span", NJson::TJsonValue(0.0))
       , TaskType("task_type", taskType)
 {
     SamplingFrequency.ChangeLoadUnimplementedPolicy(ELoadUnimplementedPolicy::ExceptionOnChange);
@@ -172,7 +172,15 @@ void NCatboostOptions::TObliviousTreeLearnerOptions::Validate() const {
         "random_score_type must be NormalWithModelSizeDecrease for GPU"
     );
 
-    CB_ENSURE(FloatFeaturesInterpolationMinSpan.Get() >= 0.0, "interpolation_min_span should be >= 0");
+    const auto& interpolationMinSpan = FloatFeaturesInterpolationMinSpan.Get();
+    if (interpolationMinSpan.IsMap()) {
+        for (const auto& [featureIdx, minSpan] : interpolationMinSpan.GetMap()) {
+            Y_UNUSED(featureIdx);
+            CB_ENSURE(FromJson<double>(minSpan) >= 0.0, "interpolation_min_span values should be >= 0");
+        }
+    } else {
+        CB_ENSURE(FromJson<double>(interpolationMinSpan) >= 0.0, "interpolation_min_span should be >= 0");
+    }
     for (const auto& [featureIdx, span] : FloatFeaturesInterpolationSpanPerFeature.Get()) {
         Y_UNUSED(featureIdx);
         CB_ENSURE(span > 0.0, "interpolation spans should be > 0");

@@ -2458,6 +2458,12 @@ def _check_param_types(params):
                 "Invalid `interpolation_span_mode` type={} : must be dict-like mapping of float feature index to span mode."
                 .format(type(params['interpolation_span_mode']))
             )
+    if 'interpolation_min_span' in params:
+        if not isinstance(params['interpolation_min_span'], (INTEGER_TYPES, FLOAT_TYPES, Mapping, MutableMapping)):
+            raise CatBoostError(
+                "Invalid `interpolation_min_span` type={} : must be number or dict-like mapping of float feature index to minimum span."
+                .format(type(params['interpolation_min_span']))
+            )
     if 'monotone_constraints' in params:
         if not isinstance(params['monotone_constraints'], STRING_TYPES + ARRAY_TYPES + (dict,)):
             raise CatBoostError(
@@ -2536,11 +2542,6 @@ def _check_interpolation_span_params_match(params, feature_names=None):
     if not isinstance(interpolation_span_mode, (Mapping, MutableMapping)):
         return
 
-    span_features = set(interpolation_span.keys())
-    span_mode_features = set(interpolation_span_mode.keys())
-    if span_features == span_mode_features:
-        return
-
     def get_feature_names(features):
         names = []
         for feature in sorted(features, key=repr):
@@ -2550,6 +2551,8 @@ def _check_interpolation_span_params_match(params, feature_names=None):
                 names.append(feature)
         return names
 
+    span_features = set(interpolation_span.keys())
+    span_mode_features = set(interpolation_span_mode.keys())
     missing_from_span_mode = get_feature_names(span_features - span_mode_features)
     missing_from_span = get_feature_names(span_mode_features - span_features)
     errors = []
@@ -2563,7 +2566,31 @@ def _check_interpolation_span_params_match(params, feature_names=None):
             "feature(s) {} are present in `interpolation_span_mode` but missing from `interpolation_span`"
             .format(missing_from_span)
         )
-    raise CatBoostError("Invalid interpolation parameters: " + "; ".join(errors) + ".")
+
+    interpolation_min_span = params.get('interpolation_min_span')
+    if isinstance(interpolation_min_span, (Mapping, MutableMapping)):
+        min_span_features = set(interpolation_min_span.keys())
+        relative_span_mode_features = {
+            feature for feature, span_mode in iteritems(interpolation_span_mode)
+            if span_mode == 'Relative'
+        }
+        missing_from_min_span = get_feature_names(relative_span_mode_features - min_span_features)
+        invalid_min_span_features = get_feature_names(
+            min_span_features - relative_span_mode_features
+        )
+        if missing_from_min_span:
+            errors.append(
+                "feature(s) {} have `interpolation_span_mode` set to 'Relative' but are missing from `interpolation_min_span`"
+                .format(missing_from_min_span)
+            )
+        if invalid_min_span_features:
+            errors.append(
+                "feature(s) {} are present in `interpolation_min_span` but missing from `interpolation_span_mode` or have `interpolation_span_mode` set to 'Absolute'"
+                .format(invalid_min_span_features)
+            )
+
+    if errors:
+        raise CatBoostError("Invalid interpolation parameters: " + "; ".join(errors) + ".")
 
 
 def _is_data_single_object(data):
@@ -2675,6 +2702,7 @@ class CatBoost(_CatBoostBase):
 
         _translate_feature_keyed_dict_keys(params, 'interpolation_span_mode', train_pool.get_feature_names())
         _translate_feature_keyed_dict_keys(params, 'interpolation_span', train_pool.get_feature_names())
+        _translate_feature_keyed_dict_keys(params, 'interpolation_min_span', train_pool.get_feature_names())
         _check_interpolation_span_params_match(params, train_pool.get_feature_names())
 
         allow_clear_pool = not isinstance(X, Pool)
@@ -4992,8 +5020,9 @@ class CatBoostClassifier(CatBoost):
     interpolation_span : dict, [default=None]
         Mapping from flat feature index or feature name to interpolation span for float features.
         Example: {0: 0.5, 3: 1.0}
-    interpolation_min_span : float, [default=0]
+    interpolation_min_span : float or dict, [default=0]
         Minimum span used for features with interpolation_span_mode='Relative'.
+        If a dict is provided, it maps flat feature index or feature name to minimum span.
     input_borders : string or os.PathLike, [default=None]
         input file with borders used in numeric features binarization.
     output_borders : string, [default=None]
@@ -7402,6 +7431,7 @@ def cv(pool=None, params=None, dtrain=None, iterations=None, num_boost_round=Non
 
     _translate_feature_keyed_dict_keys(params, 'interpolation_span_mode', pool.get_feature_names())
     _translate_feature_keyed_dict_keys(params, 'interpolation_span', pool.get_feature_names())
+    _translate_feature_keyed_dict_keys(params, 'interpolation_min_span', pool.get_feature_names())
     _check_interpolation_span_params_match(params, pool.get_feature_names())
 
     train_dir = _get_train_dir(params)

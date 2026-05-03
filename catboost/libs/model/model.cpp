@@ -410,7 +410,8 @@ TModelTrees::FBSerialize(TModelPartsCachingSerializer& serializer) const {
                 builder,
                 config.FloatFeatureIndex,
                 config.Span,
-                CheckedEnumCast<NCatBoostFbs::EFloatFeaturesInterpolationSpanMode>(config.SpanMode)
+                CheckedEnumCast<NCatBoostFbs::EFloatFeaturesInterpolationSpanMode>(config.SpanMode),
+                config.MinSpan
             )
         );
     }
@@ -463,10 +464,12 @@ void TModelTrees::ProcessFloatFeatures() {
     }
     ApplyData->FloatFeatureInterpolationSpans.assign(GetNumFloatFeatures(), -1.0);
     ApplyData->FloatFeatureInterpolationSpanModes.assign(GetNumFloatFeatures(), FloatFeaturesInterpolationOptions.SpanMode);
+    ApplyData->FloatFeatureInterpolationMinSpans.assign(GetNumFloatFeatures(), FloatFeaturesInterpolationOptions.MinSpan);
     for (const auto& config : FloatFeaturesInterpolationOptions.PerFloatFeatureConfig) {
         if (config.FloatFeatureIndex < ApplyData->FloatFeatureInterpolationSpans.size()) {
             ApplyData->FloatFeatureInterpolationSpans[config.FloatFeatureIndex] = config.Span;
             ApplyData->FloatFeatureInterpolationSpanModes[config.FloatFeatureIndex] = config.SpanMode;
+            ApplyData->FloatFeatureInterpolationMinSpans[config.FloatFeatureIndex] = config.MinSpan;
         }
     }
 }
@@ -804,7 +807,8 @@ static TFloatFeaturesInterpolationOptions DeserializeFloatFeaturesInterpolationO
             options.PerFloatFeatureConfig.push_back({
                 config->FloatFeatureIndex(),
                 config->Span(),
-                spanMode
+                spanMode,
+                config->MinSpan() > 0.0 ? config->MinSpan() : options.MinSpan
             });
         }
     }

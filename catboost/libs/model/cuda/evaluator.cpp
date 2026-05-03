@@ -67,6 +67,10 @@ namespace NCB::NModelEvaluation {
                     spanModes,
                     NCuda::EMemoryType::Device
                 );
+                Ctx.GPUModelData.FloatFeatureInterpolationMinSpans = TCudaVec<double>(
+                    ApplyData->FloatFeatureInterpolationMinSpans,
+                    NCuda::EMemoryType::Device
+                );
 
                 Ctx.GPUModelData.TreeSizes = TCudaVec<ui32>(
                     TVector<ui32>(ModelTrees->GetModelTreeData()->GetTreeSizes().begin(), ModelTrees->GetModelTreeData()->GetTreeSizes().end()),
