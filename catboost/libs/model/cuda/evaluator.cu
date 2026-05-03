@@ -200,7 +200,85 @@ __device__ __forceinline__ double CalcHardRightWeightForDocument(
     ui32 docId
 ) {
     const ui32 bucketIdx = split.FeatureIdx / WarpSize;
-    return GetQuantizedFeatureValueForDocument(quantizedFeatures, bucketsCount, bucketIdx, docId) >= split.FeatureVal ? 1.0 : 0.0;
+    return (GetQuantizedFeatureValueForDocument(quantizedFeatures, bucketsCount, bucketIdx, docId) ^ split.FeatureXorMask) >= split.FeatureVal ? 1.0 : 0.0;
+}
+
+__device__ __forceinline__ bool TryCalcFloatFeatureInterpolationSpan(
+    ui32 floatFeatureIdx,
+    double border,
+    const double* __restrict__ interpolationSpans,
+    ui32 interpolationSpansCount,
+    const ui8* __restrict__ interpolationSpanModes,
+    ui32 interpolationSpanModesCount,
+    const double* __restrict__ interpolationMinSpans,
+    ui32 interpolationMinSpansCount,
+    double minSpan,
+    double* actualSpan
+) {
+    if (floatFeatureIdx >= interpolationSpansCount) {
+        return false;
+    }
+
+    const double configuredSpan = __ldg(interpolationSpans + floatFeatureIdx);
+    if (configuredSpan <= 0.0) {
+        return false;
+    }
+
+    const bool useRelativeSpan = floatFeatureIdx < interpolationSpanModesCount && __ldg(interpolationSpanModes + floatFeatureIdx) != 0;
+    const double featureMinSpan = floatFeatureIdx < interpolationMinSpansCount
+        ? __ldg(interpolationMinSpans + floatFeatureIdx)
+        : minSpan;
+    *actualSpan = useRelativeSpan
+        ? fmax(featureMinSpan, configuredSpan * fabs(border))
+        : configuredSpan;
+    return *actualSpan > 0.0;
+}
+
+__device__ __forceinline__ bool IsInterpolationEligibleFloatSplit(
+    const TGPURepackedBin& split,
+    const ui32* __restrict__ floatFeatureForBucketIdx,
+    const ui32* __restrict__ bordersOffsets,
+    const float* __restrict__ flatBorders,
+    const double* __restrict__ interpolationSpans,
+    ui32 interpolationSpansCount,
+    const ui8* __restrict__ interpolationSpanModes,
+    ui32 interpolationSpanModesCount,
+    const double* __restrict__ interpolationMinSpans,
+    ui32 interpolationMinSpansCount,
+    double minSpan
+) {
+    const ui32 bucketIdx = split.FeatureIdx / WarpSize;
+    const ui32 floatFeatureIdx = __ldg(floatFeatureForBucketIdx + bucketIdx);
+    const double border = __ldg(flatBorders + __ldg(bordersOffsets + bucketIdx) + split.FeatureVal - 1);
+    double actualSpan = 0.0;
+    return TryCalcFloatFeatureInterpolationSpan(
+        floatFeatureIdx,
+        border,
+        interpolationSpans,
+        interpolationSpansCount,
+        interpolationSpanModes,
+        interpolationSpanModesCount,
+        interpolationMinSpans,
+        interpolationMinSpansCount,
+        minSpan,
+        &actualSpan
+    );
+}
+
+__device__ __forceinline__ ui32 CalcHardLeafIndexForDocument(
+    const TCudaQuantizationBucket* const __restrict__ quantizedFeatures,
+    ui32 bucketsCount,
+    const TGPURepackedBin* const __restrict__ treeSplits,
+    int depth,
+    ui32 docId
+) {
+    ui32 leafIndex = 0;
+    for (int currentDepth = 0; currentDepth < depth; ++currentDepth) {
+        leafIndex |= static_cast<ui32>(
+            CalcHardRightWeightForDocument(quantizedFeatures, bucketsCount, Ldg(treeSplits + currentDepth), docId)
+        ) << currentDepth;
+    }
+    return leafIndex;
 }
 
 template <typename TFloatFeatureAccessor>
@@ -220,39 +298,41 @@ __device__ __forceinline__ double CalcInterpolatedRightWeightForDocument(
     const double* __restrict__ interpolationMinSpans,
     ui32 interpolationMinSpansCount,
     bool useSigmoid,
-    double minSpan
+    double minSpan,
+    bool* needInterpolation
 ) {
     const ui32 bucketIdx = split.FeatureIdx / WarpSize;
     const ui32 floatFeatureIdx = __ldg(floatFeatureForBucketIdx + bucketIdx);
-    if (floatFeatureIdx >= interpolationSpansCount) {
-        return CalcHardRightWeightForDocument(quantizedFeatures, bucketsCount, split, docId);
-    }
-
-    const double configuredSpan = __ldg(interpolationSpans + floatFeatureIdx);
-    if (configuredSpan <= 0.0) {
-        return CalcHardRightWeightForDocument(quantizedFeatures, bucketsCount, split, docId);
-    }
-
     const float rawValue = floatAccessor(floatFeatureIdx, docId);
     if (isnan(rawValue)) {
         return CalcHardRightWeightForDocument(quantizedFeatures, bucketsCount, split, docId);
     }
 
     const double border = __ldg(flatBorders + __ldg(bordersOffsets + bucketIdx) + split.FeatureVal - 1);
-    const bool useRelativeSpan = floatFeatureIdx < interpolationSpanModesCount && __ldg(interpolationSpanModes + floatFeatureIdx) != 0;
-    const double featureMinSpan = floatFeatureIdx < interpolationMinSpansCount
-        ? __ldg(interpolationMinSpans + floatFeatureIdx)
-        : minSpan;
-    const double actualSpan = useRelativeSpan
-        ? fmax(featureMinSpan, configuredSpan * fabs(border))
-        : configuredSpan;
-    if (actualSpan <= 0.0) {
+    double actualSpan = 0.0;
+    if (!TryCalcFloatFeatureInterpolationSpan(
+            floatFeatureIdx,
+            border,
+            interpolationSpans,
+            interpolationSpansCount,
+            interpolationSpanModes,
+            interpolationSpanModesCount,
+            interpolationMinSpans,
+            interpolationMinSpansCount,
+            minSpan,
+            &actualSpan
+        ))
+    {
         return CalcHardRightWeightForDocument(quantizedFeatures, bucketsCount, split, docId);
     }
 
+    if (static_cast<double>(rawValue) < border - actualSpan || static_cast<double>(rawValue) > border + actualSpan) {
+        return CalcHardRightWeightForDocument(quantizedFeatures, bucketsCount, split, docId);
+    }
+
+    *needInterpolation = true;
     if (!useSigmoid) {
-        const double clampedValue = fmin(fmax(static_cast<double>(rawValue), border - actualSpan), border + actualSpan);
-        return (clampedValue - (border - actualSpan)) / (2.0 * actualSpan);
+        return (static_cast<double>(rawValue) - (border - actualSpan)) / (2.0 * actualSpan);
     }
 
     const double slope = 5.0 / actualSpan;
@@ -375,14 +455,52 @@ __global__ void EvalObliviousTreesWithInterpolation(
         const ui32 splitOffset = __ldg(treeStartOffsets + treeId);
         const ui32 leafOffset = __ldg(firstLeafOffset + treeId);
         const ui32 leafCount = 1u << depth;
+        const TGPURepackedBin* const treeSplits = repackedBins + splitOffset;
         double rightWeights[64];
 
+        bool treeHasInterpolatedSplits = false;
+        for (int currentDepth = 0; currentDepth < depth; ++currentDepth) {
+            if (IsInterpolationEligibleFloatSplit(
+                    Ldg(treeSplits + currentDepth),
+                    floatFeatureForBucketIdx,
+                    bordersOffsets,
+                    flatBorders,
+                    interpolationSpans,
+                    interpolationSpansCount,
+                    interpolationSpanModes,
+                    interpolationSpanModesCount,
+                    interpolationMinSpans,
+                    interpolationMinSpansCount,
+                    minSpan
+                ))
+            {
+                treeHasInterpolatedSplits = true;
+                break;
+            }
+        }
+
+        if (!treeHasInterpolatedSplits) {
+            const ui32 leafIdx = CalcHardLeafIndexForDocument(
+                quantizedFeatures,
+                bucketsCount,
+                treeSplits,
+                depth,
+                docId
+            );
+            const TCudaEvaluatorLeafType* leafValuePtr = leafValues + (leafOffset + leafIdx) * approxDimension;
+            for (ui32 dim = 0; dim < approxDimension; ++dim) {
+                docResult[dim] += __ldg(leafValuePtr + dim);
+            }
+            continue;
+        }
+
+        bool needInterpolation = false;
         for (int currentDepth = 0; currentDepth < depth; ++currentDepth) {
             rightWeights[currentDepth] = CalcInterpolatedRightWeightForDocument(
                 floatAccessor,
                 quantizedFeatures,
                 bucketsCount,
-                Ldg(repackedBins + splitOffset + currentDepth),
+                Ldg(treeSplits + currentDepth),
                 docId,
                 floatFeatureForBucketIdx,
                 bordersOffsets,
@@ -394,8 +512,21 @@ __global__ void EvalObliviousTreesWithInterpolation(
                 interpolationMinSpans,
                 interpolationMinSpansCount,
                 useSigmoid,
-                minSpan
+                minSpan,
+                &needInterpolation
             );
+        }
+
+        if (!needInterpolation) {
+            ui32 leafIdx = 0;
+            for (int currentDepth = 0; currentDepth < depth; ++currentDepth) {
+                leafIdx |= static_cast<ui32>(rightWeights[currentDepth]) << currentDepth;
+            }
+            const TCudaEvaluatorLeafType* leafValuePtr = leafValues + (leafOffset + leafIdx) * approxDimension;
+            for (ui32 dim = 0; dim < approxDimension; ++dim) {
+                docResult[dim] += __ldg(leafValuePtr + dim);
+            }
+            continue;
         }
 
         double leafWeights[1024];

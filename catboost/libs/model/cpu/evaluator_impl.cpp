@@ -765,36 +765,19 @@ namespace NCB::NModelEvaluation {
         return ((binFeatures[split.FeatureIndex * docCountInBlock + docId] ^ split.XorMask) >= split.SplitIdx) ? 1.0 : 0.0;
     }
 
-    static Y_FORCE_INLINE double CalcInterpolatedRightWeight(
+    static Y_FORCE_INLINE TMaybe<double> CalcFloatFeatureInterpolationSpan(
         const TModelTrees& trees,
         const TModelTrees::TForApplyData& applyData,
-        const TCPUEvaluatorQuantizedData* quantizedData,
-        const ui8* __restrict binFeatures,
-        size_t docCountInBlock,
-        size_t docId,
-        int splitIdx
+        ui32 floatFeatureIdx,
+        double border
     ) {
-        const auto& split = trees.GetBinFeatures()[splitIdx];
-        const auto& repackedSplit = trees.GetRepackedBins()[splitIdx];
-        if (split.Type != ESplitType::FloatFeature || quantizedData->RawFloatFeatureCount == 0) {
-            return CalcHardRightWeight(binFeatures, docCountInBlock, repackedSplit, docId);
-        }
-
-        const ui32 floatFeatureIdx = split.FloatFeature.FloatFeature;
         if (floatFeatureIdx >= applyData.FloatFeatureInterpolationSpans.size()) {
-            return CalcHardRightWeight(binFeatures, docCountInBlock, repackedSplit, docId);
-        }
-
-        const auto rawFloatData = *quantizedData->RawFloatData;
-        const float rawValue = rawFloatData[floatFeatureIdx * quantizedData->RawFloatBlockStride + docId];
-        const double border = split.FloatFeature.Split;
-        if (std::isnan(rawValue)) {
-            return CalcHardRightWeight(binFeatures, docCountInBlock, repackedSplit, docId);
+            return Nothing();
         }
 
         const double configuredSpan = applyData.FloatFeatureInterpolationSpans[floatFeatureIdx];
         if (configuredSpan <= 0.0) {
-            return rawValue > border ? 1.0 : 0.0;
+            return Nothing();
         }
 
         const auto& interpolationOptions = trees.GetFloatFeaturesInterpolationOptions();
@@ -808,15 +791,94 @@ namespace NCB::NModelEvaluation {
             ? Max(minSpan, configuredSpan * std::abs(border))
             : configuredSpan;
         if (actualSpan <= 0.0) {
+            return Nothing();
+        }
+        return actualSpan;
+    }
+
+    static Y_FORCE_INLINE bool IsInterpolationEligibleFloatSplit(
+        const TModelTrees& trees,
+        const TModelTrees::TForApplyData& applyData,
+        int splitIdx
+    ) {
+        const auto& split = trees.GetBinFeatures()[splitIdx];
+        return split.Type == ESplitType::FloatFeature
+            && CalcFloatFeatureInterpolationSpan(
+                trees,
+                applyData,
+                split.FloatFeature.FloatFeature,
+                split.FloatFeature.Split
+            ).Defined();
+    }
+
+    static Y_FORCE_INLINE double CalcInterpolatedRightWeight(
+        const TModelTrees& trees,
+        const TModelTrees::TForApplyData& applyData,
+        const TCPUEvaluatorQuantizedData* quantizedData,
+        const ui8* __restrict binFeatures,
+        size_t docCountInBlock,
+        size_t docId,
+        int splitIdx,
+        const TRepackedBin& repackedSplit,
+        bool* needInterpolation
+    ) {
+        const auto& split = trees.GetBinFeatures()[splitIdx];
+        if (split.Type != ESplitType::FloatFeature || quantizedData->RawFloatFeatureCount == 0) {
             return CalcHardRightWeight(binFeatures, docCountInBlock, repackedSplit, docId);
         }
 
-        if (interpolationOptions.Type == EFloatFeaturesInterpolationType::Linear) {
-            const double clampedValue = Min(Max<double>(rawValue, border - actualSpan), border + actualSpan);
-            return (clampedValue - (border - actualSpan)) / (2.0 * actualSpan);
+        const ui32 floatFeatureIdx = split.FloatFeature.FloatFeature;
+        const double border = split.FloatFeature.Split;
+        const TMaybe<double> actualSpan = CalcFloatFeatureInterpolationSpan(trees, applyData, floatFeatureIdx, border);
+        if (!actualSpan.Defined()) {
+            return CalcHardRightWeight(binFeatures, docCountInBlock, repackedSplit, docId);
         }
-        const double slope = 5.0 / actualSpan;
+
+        const auto rawFloatData = *quantizedData->RawFloatData;
+        const float rawValue = rawFloatData[floatFeatureIdx * quantizedData->RawFloatBlockStride + docId];
+        if (std::isnan(rawValue)) {
+            return CalcHardRightWeight(binFeatures, docCountInBlock, repackedSplit, docId);
+        }
+
+        if (rawValue < border - *actualSpan || rawValue > border + *actualSpan) {
+            return CalcHardRightWeight(binFeatures, docCountInBlock, repackedSplit, docId);
+        }
+
+        *needInterpolation = true;
+        const auto& interpolationOptions = trees.GetFloatFeaturesInterpolationOptions();
+        if (interpolationOptions.Type == EFloatFeaturesInterpolationType::Linear) {
+            return (rawValue - (border - *actualSpan)) / (2.0 * *actualSpan);
+        }
+        const double slope = 5.0 / *actualSpan;
         return 1.0 / (1.0 + std::exp(-slope * (rawValue - border)));
+    }
+
+    static Y_FORCE_INLINE TCalcerIndexType CalcHardLeafIndex(
+        const ui8* __restrict binFeatures,
+        size_t docCountInBlock,
+        const TRepackedBin* __restrict treeSplitsCurPtr,
+        int depth,
+        size_t docId
+    ) {
+        TCalcerIndexType index = 0;
+        for (int currentDepth = 0; currentDepth < depth; ++currentDepth) {
+            index |= static_cast<TCalcerIndexType>(
+                CalcHardRightWeight(binFeatures, docCountInBlock, treeSplitsCurPtr[currentDepth], docId)
+            ) << currentDepth;
+        }
+        return index;
+    }
+
+    static Y_FORCE_INLINE void AddLeafValue(
+        const double* __restrict treeLeafPtr,
+        TCalcerIndexType leafIdx,
+        size_t approxDimension,
+        double* __restrict docResultPtr
+    ) {
+        const double* __restrict leafValuePtr = treeLeafPtr + leafIdx * approxDimension;
+        for (size_t dimension = 0; dimension < approxDimension; ++dimension) {
+            docResultPtr[dimension] += leafValuePtr[dimension];
+        }
     }
 
     static void CalcTreesBlockedWithInterpolation(
@@ -824,7 +886,7 @@ namespace NCB::NModelEvaluation {
         const TModelTrees::TForApplyData& applyData,
         const TCPUEvaluatorQuantizedData* quantizedData,
         size_t docCountInBlock,
-        TCalcerIndexType* __restrict,
+        TCalcerIndexType* __restrict indexesVec,
         size_t treeStart,
         size_t treeEnd,
         double* __restrict resultsPtr
@@ -841,10 +903,37 @@ namespace NCB::NModelEvaluation {
             const int depth = treeSizes[treeId];
             Y_ASSERT(depth < 64);
             const int splitOffset = treeStartOffsets[treeId];
+            const TRepackedBin* __restrict treeSplitsCurPtr = trees.GetRepackedBins().data() + splitOffset;
             const double* __restrict treeLeafPtr = leafValues.data() + applyData.TreeFirstLeafOffsets[treeId];
             const size_t leafCount = 1ull << depth;
 
+            bool treeHasInterpolatedSplits = false;
+            for (int currentDepth = 0; currentDepth < depth; ++currentDepth) {
+                if (IsInterpolationEligibleFloatSplit(trees, applyData, treeSplits[splitOffset + currentDepth])) {
+                    treeHasInterpolatedSplits = true;
+                    break;
+                }
+            }
+
+            if (!treeHasInterpolatedSplits || quantizedData->RawFloatFeatureCount == 0) {
+                if (indexesVec == nullptr) {
+                    AddLeafValue(
+                        treeLeafPtr,
+                        CalcHardLeafIndex(binFeatures, docCountInBlock, treeSplitsCurPtr, depth, 0),
+                        approxDimension,
+                        resultsPtr
+                    );
+                    continue;
+                }
+                memset(indexesVec, 0, sizeof(TCalcerIndexType) * docCountInBlock);
+                CalcIndexesBasic<true, 0>(binFeatures, docCountInBlock, indexesVec, treeSplitsCurPtr, depth);
+                CalculateLeafValuesMulti(docCountInBlock, treeLeafPtr, indexesVec, approxDimension, resultsPtr);
+                continue;
+            }
+
+            TVector<double> leafWeights(leafCount);
             for (size_t docId = 0; docId < docCountInBlock; ++docId) {
+                bool needInterpolation = false;
                 for (int currentDepth = 0; currentDepth < depth; ++currentDepth) {
                     rightWeights[currentDepth] = CalcInterpolatedRightWeight(
                         trees,
@@ -853,13 +942,27 @@ namespace NCB::NModelEvaluation {
                         binFeatures,
                         docCountInBlock,
                         docId,
-                        treeSplits[splitOffset + currentDepth]
+                        treeSplits[splitOffset + currentDepth],
+                        treeSplitsCurPtr[currentDepth],
+                        &needInterpolation
                     );
                 }
 
                 double* __restrict docResultPtr = resultsPtr + docId * approxDimension;
+                if (!needInterpolation) {
+                    TCalcerIndexType hardLeafIndex = 0;
+                    for (int currentDepth = 0; currentDepth < depth; ++currentDepth) {
+                        hardLeafIndex |= static_cast<TCalcerIndexType>(rightWeights[currentDepth]) << currentDepth;
+                    }
+                    AddLeafValue(
+                        treeLeafPtr,
+                        hardLeafIndex,
+                        approxDimension,
+                        docResultPtr
+                    );
+                    continue;
+                }
 
-                TVector<double> leafWeights(leafCount);
                 leafWeights[0] = 1.0;
                 for (int currentDepth = 0; currentDepth < depth; ++currentDepth) {
                     const double rw = rightWeights[currentDepth];

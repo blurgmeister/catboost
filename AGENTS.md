@@ -156,42 +156,7 @@ Record the answer to each of these in code comments or follow-up docs once decid
 - Match the repository's naming and validation style rather than introducing a separate mini-framework.
 - Keep changes incremental and reviewable.
 - Prefer evaluator unit tests with tiny synthetic oblivious trees over large end-to-end experiments for first-pass validation.
-- If a behavior choice is ambiguous, document the assumption in the PR or commit message and keep the implementation narrow.
-
-## Future Work Note: Per-Feature Interpolation Type And Span Mode
-
-The current implementation supports:
-
-- per-feature interpolation span values
-- one global interpolation type for the whole model
-- per-feature interpolation span mode
-
-If future work should extend the backend to allow choosing interpolation type per float feature as well, then this does not look like a small evaluator-only patch. The likely scope includes:
-
-- options layer changes in `catboost/private/libs/options` so the configuration can carry per-feature interpolation type alongside per-feature spans and types
-- model runtime structure changes in `catboost/libs/model/model.h` so `TFloatFeatureInterpolationConfig` stores feature-specific type and span-mode fields instead of relying on only global `Type`
-- serialization format changes in `catboost/libs/model/model.cpp` and `catboost/libs/model/flatbuffers/model.fbs` so the model artifact persists these per-feature settings while keeping old models readable
-- CPU evaluator changes in `catboost/libs/model/cpu/evaluator_impl.cpp` so each float split uses the interpolation type and span mode associated with its float feature
-- GPU evaluator changes in `catboost/libs/model/cuda` because the current GPU path derives simple global flags such as sigmoid vs linear; that logic would need per-feature lookups instead
-- Python parameter plumbing in `catboost/python-package/catboost/core.py` and related wrappers so the user-facing API can express per-feature type/mode in a validated format
-- test updates across model serialization tests, evaluator unit tests, Python option round-trip tests, and CPU/GPU parity tests
-
-One reasonable design direction would be to extend the per-feature interpolation config object to carry:
-
-- float feature index
-- span
-- interpolation type
-- interpolation span mode
-
-If this is implemented, preserve backward compatibility by:
-
-- defining how global settings interact with per-feature overrides
-- keeping old model artifacts and old Python call patterns valid
-
-## Future work: filtering data and interpolating only what's needed
-
-We know that only data point within the span of each feature's split point in each tree need interpolation, those outside that range can be treated as normal (with binary radix and fast lookup). 
-We should implement a filtering procedure to only route data points that need interpolating, rather than interpolating everything all the time. Furthermore, any trees that have no interpolated features should simply proceed through the traditional route as well.  
+- If a behavior choice is ambiguous, document the assumption in the PR or commit message and keep the implementation narrow. 
 
 ## Phase 2 Implementation Progress
 
@@ -232,6 +197,9 @@ We should implement a filtering procedure to only route data points that need in
   - focused evaluator tests: done
   - Python parameter plumbing: source-level done
   - compile-fix pass for model_ut: done
+  - convert interpolation_span_mode from a single global input to per feature input instead
+  - convert interpolation_min_span from a single global input to per feature input instead
+  - apply extra logic so the interpolation only applies to datapoints that fall within an interpolation span. Resulted in 30% reduction in runtime of new_model.py
   - GPU evaluator source implementation: started, not yet compiled/validated
 
   So the main remaining work is GPU build/validation plus package/export/CLI verification.

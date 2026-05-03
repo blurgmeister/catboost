@@ -359,6 +359,37 @@ TFullModel BuildTwoTreeSingleSplitFloatModel(
     return model;
 }
 
+TFullModel BuildTwoTreeReversedSplitFloatModel(
+    float firstBorder,
+    double firstLeftValue,
+    double firstRightValue,
+    float secondBorder,
+    double secondLeftValue,
+    double secondRightValue
+) {
+    TFullModel model;
+    auto* trees = model.ModelTrees.GetMutable();
+    trees->SetFloatFeatures(
+        {
+            TFloatFeature{
+                false,
+                0,
+                0,
+                {firstBorder, secondBorder},
+                ""
+            }
+        }
+    );
+    trees->AddBinTree({1});
+    trees->AddLeafValue(secondLeftValue);
+    trees->AddLeafValue(secondRightValue);
+    trees->AddBinTree({0});
+    trees->AddLeafValue(firstLeftValue);
+    trees->AddLeafValue(firstRightValue);
+    model.UpdateDynamicData();
+    return model;
+}
+
 void EnableInterpolation(
     TFullModel* model,
     EFloatFeaturesInterpolationType type,
@@ -579,6 +610,37 @@ Y_UNIT_TEST_SUITE(TObliviousTreeModel) {
         UNIT_ASSERT_EQUAL(expectedLeafIndexes, leafIndexes);
     }
 
+    Y_UNIT_TEST(TestSingleSplitSigmoidInterpolationUsesHardScoringOutsideSpan) {
+        auto model = BuildSingleSplitFloatModel(10.0f, 0.0, 10.0);
+        EnableInterpolation(
+            &model,
+            EFloatFeaturesInterpolationType::Sigmoid,
+            EFloatFeaturesInterpolationSpanMode::Absolute,
+            0.0,
+            {{0, 2.0}}
+        );
+
+        TVector<TVector<float>> data = {{7.f}, {8.f}, {10.f}, {12.f}, {13.f}};
+        TVector<double> expectedPredicts = {
+            0.0,
+            10.0 * Sigmoid(-5.0),
+            5.0,
+            10.0 * Sigmoid(5.0),
+            10.0
+        };
+        TVector<ui32> expectedLeafIndexes = {0, 0, 0, 1, 1};
+        const auto features = GetFeatureRef(data);
+
+        TVector<double> predicts(features.size());
+        model.CalcFlat(features, predicts);
+        for (size_t i = 0; i < predicts.size(); ++i) {
+            UNIT_ASSERT_DOUBLES_EQUAL(expectedPredicts[i], predicts[i], 1e-8);
+        }
+        TVector<ui32> leafIndexes(features.size());
+        model.CalcLeafIndexes(features, {}, leafIndexes);
+        UNIT_ASSERT_EQUAL(expectedLeafIndexes, leafIndexes);
+    }
+
     Y_UNIT_TEST(TestTwoSplitMixedInterpolation) {
         auto model = BuildTwoSplitFloatModel(10.0f, 20.0f, {0.0, 10.0, 100.0, 110.0});
         EnableInterpolation(
@@ -754,6 +816,32 @@ Y_UNIT_TEST_SUITE(TObliviousTreeModel) {
         CheckFlatCalcPredictionsOnly(model, expectedPredicts, GetFeatureRef(data));
     }
 
+    Y_UNIT_TEST(TestSingleSplitSigmoidInterpolationUsesHardScoringOutsideSpanGpu) {
+        if (!IsGpuEvaluatorSupported()) {
+            return;
+        }
+
+        auto model = BuildSingleSplitFloatModel(10.0f, 0.0, 10.0);
+        EnableInterpolation(
+            &model,
+            EFloatFeaturesInterpolationType::Sigmoid,
+            EFloatFeaturesInterpolationSpanMode::Absolute,
+            0.0,
+            {{0, 2.0}}
+        );
+        model.SetEvaluatorType(EFormulaEvaluatorType::GPU);
+
+        TVector<TVector<float>> data = {{7.f}, {8.f}, {10.f}, {12.f}, {13.f}};
+        TVector<double> expectedPredicts = {
+            0.0,
+            10.0 * Sigmoid(-5.0),
+            5.0,
+            10.0 * Sigmoid(5.0),
+            10.0
+        };
+        CheckFlatCalcPredictionsOnly(model, expectedPredicts, GetFeatureRef(data));
+    }
+
     Y_UNIT_TEST(TestInterpolationIsTreeLocalForMultipleTrees) {
         auto model = BuildTwoTreeSingleSplitFloatModel(
             10.0f,
@@ -777,6 +865,28 @@ Y_UNIT_TEST_SUITE(TObliviousTreeModel) {
             10.0 + 100.0,
             10.0 + 150.0
         };
+        CheckFlatCalcPredictionsOnly(model, expectedPredicts, GetFeatureRef(data));
+    }
+
+    Y_UNIT_TEST(TestInterpolationHardFallbackUsesTreeLocalRepackedSplit) {
+        auto model = BuildTwoTreeReversedSplitFloatModel(
+            10.0f,
+            0.0,
+            10.0,
+            20.0f,
+            100.0,
+            200.0
+        );
+        EnableInterpolation(
+            &model,
+            EFloatFeaturesInterpolationType::Linear,
+            EFloatFeaturesInterpolationSpanMode::Absolute,
+            0.0,
+            {{0, 1.0}}
+        );
+
+        TVector<TVector<float>> data = {{15.f}};
+        TVector<double> expectedPredicts = {100.0 + 10.0};
         CheckFlatCalcPredictionsOnly(model, expectedPredicts, GetFeatureRef(data));
     }
 
