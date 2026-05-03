@@ -2516,6 +2516,56 @@ def _translate_feature_keyed_dict_keys(params, param_name, feature_names):
     }
 
 
+def _check_interpolation_span_params_match(params, feature_names=None):
+    has_interpolation_span = 'interpolation_span' in params
+    has_interpolation_span_mode = 'interpolation_span_mode' in params
+    if has_interpolation_span != has_interpolation_span_mode:
+        present_param = 'interpolation_span' if has_interpolation_span else 'interpolation_span_mode'
+        missing_param = 'interpolation_span_mode' if has_interpolation_span else 'interpolation_span'
+        raise CatBoostError(
+            "Invalid interpolation parameters: `{}` is present but `{}` is not; both must be specified."
+            .format(present_param, missing_param)
+        )
+    if not has_interpolation_span:
+        return
+
+    interpolation_span = params['interpolation_span']
+    interpolation_span_mode = params['interpolation_span_mode']
+    if not isinstance(interpolation_span, (Mapping, MutableMapping)):
+        return
+    if not isinstance(interpolation_span_mode, (Mapping, MutableMapping)):
+        return
+
+    span_features = set(interpolation_span.keys())
+    span_mode_features = set(interpolation_span_mode.keys())
+    if span_features == span_mode_features:
+        return
+
+    def get_feature_names(features):
+        names = []
+        for feature in sorted(features, key=repr):
+            if feature_names is not None and isinstance(feature, INTEGER_TYPES) and 0 <= feature < len(feature_names):
+                names.append(feature_names[feature])
+            else:
+                names.append(feature)
+        return names
+
+    missing_from_span_mode = get_feature_names(span_features - span_mode_features)
+    missing_from_span = get_feature_names(span_mode_features - span_features)
+    errors = []
+    if missing_from_span_mode:
+        errors.append(
+            "feature(s) {} are present in `interpolation_span` but missing from `interpolation_span_mode`"
+            .format(missing_from_span_mode)
+        )
+    if missing_from_span:
+        errors.append(
+            "feature(s) {} are present in `interpolation_span_mode` but missing from `interpolation_span`"
+            .format(missing_from_span)
+        )
+    raise CatBoostError("Invalid interpolation parameters: " + "; ".join(errors) + ".")
+
+
 def _is_data_single_object(data):
     if isinstance(data, (Pool, FeaturesData, pd.DataFrame) + SPARSE_MATRIX_TYPES):
         return False
@@ -2625,6 +2675,7 @@ class CatBoost(_CatBoostBase):
 
         _translate_feature_keyed_dict_keys(params, 'interpolation_span_mode', train_pool.get_feature_names())
         _translate_feature_keyed_dict_keys(params, 'interpolation_span', train_pool.get_feature_names())
+        _check_interpolation_span_params_match(params, train_pool.get_feature_names())
 
         allow_clear_pool = not isinstance(X, Pool)
 
@@ -7348,6 +7399,10 @@ def cv(pool=None, params=None, dtrain=None, iterations=None, num_boost_round=Non
                                 + str(embedding_feature_indices_from_params) +
                                 " vs " + str(pool.get_embedding_feature_indices()))
         del params['embedding_features']
+
+    _translate_feature_keyed_dict_keys(params, 'interpolation_span_mode', pool.get_feature_names())
+    _translate_feature_keyed_dict_keys(params, 'interpolation_span', pool.get_feature_names())
+    _check_interpolation_span_params_match(params, pool.get_feature_names())
 
     train_dir = _get_train_dir(params)
     create_dir_if_not_exist(train_dir)
