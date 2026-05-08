@@ -203,3 +203,10 @@ Record the answer to each of these in code comments or follow-up docs once decid
   - GPU evaluator source implementation: started, not yet compiled/validated
 
   So the main remaining work is GPU build/validation plus package/export/CLI verification.
+
+## Current Activities to do
+- build scripts to compare the how much the individual row level predictions change when using different starting seeds across for the smoothed catboost model versus the unsmoothed catboost model. Use the california_housing.csv dataset located in /home/kerith/workspaces/test_output/regression/ and the breast_cancer.csv dataset located in /home/kerith/workspaces/test_output/classification/ . Use the new_models.py script for inspiration and reference located in /home/kerith/workspaces/catboost/test/ .
+- make one script to run the unsmoothed catboost model (ie remove all smoothing params) and score and save the model predictions to /home/kerith/workspaces/smooth_simple/ directory.
+- make one script to run the smoothed catboost model (ie mkeep all smoothing params in new_model.py) and score and save the model predictions to /home/kerith/workspaces/smooth_simple/ directory. 
+- make one more script to read the saved model predictions and create two histograms of the row wise prediction percentage differences and save the two charts (one for califronia_housing dataset and the other for breast_cancer dataset) to /home/kerith/workspaces/smooth_simple/ directory.
+- set a different seed for each model. Run a model at each depths of 1,2,3. Show the percentage differences for all the depths on a common chart by dataset.  

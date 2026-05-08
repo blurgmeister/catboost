@@ -64,14 +64,16 @@ def create_baseline_plots():
                     "radius error": "Absolute", "worst area": "Relative",
                     "worst concave points": "Relative", "worst concavity": "Relative",
                     "worst perimeter": "Relative", "worst radius": "Relative",
-                    "worst texture": "Relative", "mean fractal dimension": "Absolute"
+                    "worst texture": "Relative", "mean fractal dimension": "Absolute",
+                    "worst symmetry": "Absolute", "compactness error": "Absolute"
                 },
                 "interpolation_span": {"area error" : 0.25, "mean concave points" : 0.5,
                                        "mean texture" : 0.2, "perimeter error" : 0.3,
                                        "radius error" : 1, "worst area" : 0.5,
                                        "worst concave points" : 0.5, "worst concavity" : 1,
                                        "worst perimeter" : 0.5, "worst radius" : 0.25,
-                                       "worst texture" : 0.3, "mean fractal dimension" : 0.025},
+                                       "worst texture" : 0.3, "mean fractal dimension" : 0.025,
+                                       "worst symmetry": 0.025, "compactness error": 0.01},
 
                 "monotone_constraints": {"mean concave points" : -1, "mean fractal dimension": 1,
                                        "perimeter error" : -1,
