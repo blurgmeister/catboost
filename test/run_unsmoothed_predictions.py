@@ -1,3 +1,4 @@
+import argparse
 import os
 
 import catboost as cb
@@ -15,6 +16,33 @@ from openml_prediction_utils import (
 
 OUTPUT_DIR = "/home/kerith/workspaces/smooth_multi/predictions"
 MODEL_SEEDS = [22, 33]
+DEFAULT_ONLY_SUITE = "all"
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Train unsmoothed CatBoost models and save validation predictions."
+    )
+    parser.add_argument(
+        "--only-suite",
+        default=DEFAULT_ONLY_SUITE,
+        help="Only process datasets from this suite. Defaults to all supported suites.",
+    )
+    parser.add_argument(
+        "--only-dataset-name",
+        default=None,
+        help="Only process datasets whose name contains this case-insensitive text.",
+    )
+    return parser.parse_args()
+
+
+def selected_tasks(args):
+    suites = None if args.only_suite.lower() == "all" else {args.only_suite}
+    tasks = load_tasks() if suites is None else load_tasks(suites=suites)
+    if args.only_dataset_name:
+        needle = args.only_dataset_name.lower()
+        tasks = [task for task in tasks if needle in task.name.lower()]
+    return tasks
 
 
 def run_task(task):
@@ -71,8 +99,13 @@ def run_task(task):
 
 
 def main():
+    args = parse_args()
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    for task in load_tasks():
+    tasks = selected_tasks(args)
+    if not tasks:
+        print("No datasets matched the requested filters.")
+        return
+    for task in tasks:
         run_task(task)
 
 

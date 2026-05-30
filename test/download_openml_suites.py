@@ -9,6 +9,7 @@ The script uses OpenML benchmark suites rather than hard-coded dataset IDs:
 
 It also downloads selected standalone OpenML datasets:
   - French Motor Claims freMTPL2freq: claim frequency dataset, data id 43593
+  - Allstate Claims Severity: claim severity regression dataset, data id 42571
   - Covertype: forest cover type classification dataset, data id 1596
 
 Each CSV contains feature columns plus a final target column named "__target__".
@@ -44,7 +45,14 @@ FRENCH_MOTOR_CLAIMS_FREQ = {
     "dataset_name": "French-Motor-Claims-Datasets-freMTPL2freq",
     "target_name": "ClaimNb",
 }
+ALLSTATE_CLAIMS_SEVERITY = {
+    "suite": "OpenML-Allstate-Claims-Severity",
+    "dataset_id": 42571,
+    "dataset_name": "Allstate_Claims_Severity",
+    "target_name": "loss",
+}
 STANDALONE_DATASETS = {
+    "allstate-claims-severity": ALLSTATE_CLAIMS_SEVERITY,
     "french-motor-claims": FRENCH_MOTOR_CLAIMS_FREQ,
     "covertype": {
         "suite": "OpenML-Covertype",

@@ -1,3 +1,4 @@
+import argparse
 import re
 import os
 from pathlib import Path
@@ -15,6 +16,23 @@ MODEL_KINDS = ["unsmoothed", "smoothed"]
 FILENAME_RE = re.compile(r"(.+)_(smoothed|unsmoothed)_depth_(\d+)_predictions\.csv$")
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Plot row-wise seed prediction difference histograms."
+    )
+    parser.add_argument(
+        "--only-dataset",
+        default=None,
+        help="Only plot this exact dataset name as it appears in prediction filenames.",
+    )
+    parser.add_argument(
+        "--only-dataset-name",
+        default=None,
+        help="Only plot datasets whose name contains this case-insensitive text.",
+    )
+    return parser.parse_args()
+
+
 def discover_prediction_files():
     files = {}
     for path in PREDICTION_DIR.glob("*_predictions.csv"):
@@ -24,6 +42,15 @@ def discover_prediction_files():
         dataset, model_kind, depth = match.groups()
         files[(dataset, model_kind, int(depth))] = path
     return files
+
+
+def filter_datasets(datasets, args):
+    if args.only_dataset:
+        datasets = [dataset for dataset in datasets if dataset == args.only_dataset]
+    if args.only_dataset_name:
+        needle = args.only_dataset_name.lower()
+        datasets = [dataset for dataset in datasets if needle in dataset.lower()]
+    return datasets
 
 
 def prediction_groups(columns):
@@ -163,8 +190,13 @@ def plot_dataset_output(dataset, output_name, files, summary_rows):
 
 
 def main():
+    args = parse_args()
     files = discover_prediction_files()
     datasets = sorted({dataset for dataset, _, _ in files})
+    datasets = filter_datasets(datasets, args)
+    if not datasets:
+        print("No datasets matched the requested filters.")
+        return
     summary_rows = []
 
     for dataset in datasets:

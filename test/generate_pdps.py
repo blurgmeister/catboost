@@ -39,7 +39,9 @@ OUTPUT_DIR = BASE_DIR / "PDP"
 TARGET_COLUMN = "__target__"
 FRENCH_MOTOR_CLAIMS_SUITE = "OpenML-French-Motor-Claims"
 FRENCH_MOTOR_CLAIMS_EXPOSURE_COLUMN = "Exposure"
+ALLSTATE_CLAIMS_SEVERITY_SUITE = "OpenML-Allstate-Claims-Severity"
 CLASSIFICATION_SUITES = {"OpenML-CC18", "OpenML-Covertype"}
+REGRESSION_SUITES = {"OpenML-CTR23", FRENCH_MOTOR_CLAIMS_SUITE, ALLSTATE_CLAIMS_SEVERITY_SUITE}
 DEFAULT_MULTICLASS_CLASSES_BY_SUITE = {
     "OpenML-Covertype": ("1", "2"),
 }
@@ -60,7 +62,7 @@ def safe_name(value: str) -> str:
 def infer_task_type(suite_name: str) -> str:
     if suite_name in CLASSIFICATION_SUITES:
         return "classification"
-    if suite_name in {"OpenML-CTR23", FRENCH_MOTOR_CLAIMS_SUITE}:
+    if suite_name in REGRESSION_SUITES:
         return "regression"
     raise ValueError(f"Unsupported suite: {suite_name}")
 
@@ -223,6 +225,21 @@ def get_used_features(model, feature_names: list[str]) -> list[str]:
     order = np.argsort(importances)[::-1]
     fallback = [feature_names[idx] for idx in order[: min(10, len(feature_names))]]
     return fallback
+
+
+def get_pdp_features(
+    suite_name: str,
+    model,
+    X: pd.DataFrame,
+) -> list[str]:
+    if suite_name == ALLSTATE_CLAIMS_SEVERITY_SUITE:
+        numeric_features = [
+            column
+            for column in X.columns
+            if re.fullmatch(r"cont\d+", column) and pd.api.types.is_numeric_dtype(X[column])
+        ]
+        return sorted(numeric_features, key=lambda name: int(name.removeprefix("cont")))
+    return get_used_features(model, list(X.columns))
 
 
 def normalize_pd_output(
@@ -411,8 +428,8 @@ def main() -> int:
                 verbose=False,
             )
 
-            used_features = get_used_features(model, list(X.columns))
-            if not used_features:
+            pdp_features = get_pdp_features(suite_name, model, X)
+            if not pdp_features:
                 print("    No used features found, skipping PDP generation")
                 continue
 
@@ -422,7 +439,7 @@ def main() -> int:
                 else []
             )
 
-            for feature in used_features:
+            for feature in pdp_features:
                 print(f"    PDP for {feature}")
                 pd_results = partial_dependence(
                     model,

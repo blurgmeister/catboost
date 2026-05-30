@@ -15,6 +15,7 @@ Outputs:
 
 from __future__ import annotations
 
+import argparse
 import os
 from pathlib import Path
 
@@ -48,6 +49,23 @@ SERIES_COLORS = {
     "xgboost": "#54A24B",
     "lightgbm": "#B279A2",
 }
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Plot prediction duration benchmark charts."
+    )
+    parser.add_argument(
+        "--only-dataset",
+        default=None,
+        help="Only plot this exact dataset name.",
+    )
+    parser.add_argument(
+        "--only-dataset-name",
+        default=None,
+        help="Only plot datasets whose name contains this case-insensitive text.",
+    )
+    return parser.parse_args()
 
 
 def dataset_title(name: str) -> str:
@@ -117,13 +135,29 @@ def plot_dataset(summary: pd.DataFrame, dataset: str) -> Path:
     return output_path
 
 
+def filter_datasets(datasets: list[str], args: argparse.Namespace) -> list[str]:
+    if args.only_dataset:
+        datasets = [dataset for dataset in datasets if dataset == args.only_dataset]
+    if args.only_dataset_name:
+        needle = args.only_dataset_name.lower()
+        datasets = [dataset for dataset in datasets if needle in dataset.lower()]
+    return datasets
+
+
 def main() -> None:
+    args = parse_args()
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     summary = build_summary(load_benchmark())
+    datasets = filter_datasets(sorted(summary["dataset"].unique()), args)
+    if not datasets:
+        print("No datasets matched the requested filters.")
+        return
+
+    summary = summary[summary["dataset"].isin(datasets)].reset_index(drop=True)
     summary.to_csv(SUMMARY_PATH, index=False)
 
     output_paths = []
-    for dataset in sorted(summary["dataset"].unique()):
+    for dataset in datasets:
         output_paths.append(plot_dataset(summary, dataset))
 
     print(f"Saved summary: {SUMMARY_PATH}")

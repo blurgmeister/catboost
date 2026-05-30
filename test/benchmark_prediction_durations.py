@@ -76,6 +76,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--models-per-depth", type=int, default=DEFAULT_MODELS_PER_DEPTH)
     parser.add_argument("--depths", type=int, nargs="+", default=DEFAULT_DEPTHS)
     parser.add_argument(
+        "--only-suite",
+        default="all",
+        help="Only process datasets from this suite. Defaults to all suites in the manifest.",
+    )
+    parser.add_argument(
+        "--only-dataset-name",
+        default=None,
+        help="Only process datasets whose name contains this case-insensitive text.",
+    )
+    parser.add_argument(
         "--append",
         action="store_true",
         help="Append to an existing CSV instead of replacing it.",
@@ -99,6 +109,18 @@ def load_gap_map() -> dict[tuple[str, int], dict[str, float]]:
         key = (str(row["dataset"]), int(row["depth"]))
         gap_map.setdefault(key, {})[str(row["feature"])] = float(row["span"])
     return gap_map
+
+
+def filter_manifest(manifest: pd.DataFrame, args: argparse.Namespace) -> pd.DataFrame:
+    filtered = manifest
+    if args.only_suite and args.only_suite.lower() != "all":
+        filtered = filtered[filtered["suite"].astype(str) == args.only_suite]
+    if args.only_dataset_name:
+        needle = args.only_dataset_name.lower()
+        filtered = filtered[
+            filtered["dataset_name"].astype(str).str.lower().str.contains(re.escape(needle), regex=True, na=False)
+        ]
+    return filtered.reset_index(drop=True)
 
 
 def get_interpolation_spans(
@@ -604,7 +626,10 @@ def run_other_once(
 
 
 def write_results(args: argparse.Namespace) -> None:
-    manifest = pd.read_csv(MANIFEST_PATH)
+    manifest = filter_manifest(pd.read_csv(MANIFEST_PATH), args)
+    if manifest.empty:
+        print("No datasets matched the requested filters.", flush=True)
+        return
     gap_map = load_gap_map()
     output_path = Path(args.output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
