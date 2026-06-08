@@ -263,6 +263,83 @@ def plot_metric(dataset, output_name, chart_data, metric, label, output_dir):
     print(f"Saved {output_path}")
 
 
+def plot_ratio_metric(dataset, output_name, comparison, metric, label, output_dir):
+    subset = comparison[
+        (comparison["dataset"] == dataset)
+        & (comparison["output"] == output_name)
+    ].sort_values("depth")
+    if subset.empty:
+        return
+
+    ratio_column = f"{metric}_ratio_smoothed_to_unsmoothed"
+    if ratio_column not in subset:
+        return
+
+    fig, axis = plt.subplots(figsize=(9, 6))
+    axis.plot(
+        subset["depth"],
+        subset[ratio_column],
+        marker="o",
+        linewidth=2,
+        color="#1f77b4",
+    )
+    axis.axhline(1.0, color="#666666", linestyle="--", linewidth=1)
+
+    output_label = "" if output_name == "" else f" | class {output_name}"
+    axis.set_title(f"{dataset}{output_label}: smoothed / unsmoothed {label}")
+    axis.set_xlabel("Model depth")
+    axis.set_ylabel("Smoothed / unsmoothed")
+    axis.grid(alpha=0.25)
+    fig.tight_layout()
+
+    output_path = (
+        output_dir
+        / f"{dataset}{safe_output_part(output_name)}_prediction_difference_ratio_{metric}_by_depth.png"
+    )
+    fig.savefig(output_path, dpi=150)
+    plt.close(fig)
+    print(f"Saved {output_path}")
+
+
+def plot_combined_ratio_metrics(dataset, output_name, comparison, output_dir):
+    subset = comparison[
+        (comparison["dataset"] == dataset)
+        & (comparison["output"] == output_name)
+    ].sort_values("depth")
+    if subset.empty:
+        return
+
+    fig, axis = plt.subplots(figsize=(10, 6))
+    for metric, label in METRICS:
+        ratio_column = f"{metric}_ratio_smoothed_to_unsmoothed"
+        if ratio_column not in subset:
+            continue
+        axis.plot(
+            subset["depth"],
+            subset[ratio_column],
+            marker="o",
+            linewidth=2,
+            label=label,
+        )
+    axis.axhline(1.0, color="#666666", linestyle="--", linewidth=1)
+
+    output_label = "" if output_name == "" else f" | class {output_name}"
+    axis.set_title(f"{dataset}{output_label}: smoothed / unsmoothed ratios")
+    axis.set_xlabel("Model depth")
+    axis.set_ylabel("Smoothed / unsmoothed")
+    axis.grid(alpha=0.25)
+    axis.legend(title="Metric", loc="best")
+    fig.tight_layout()
+
+    output_path = (
+        output_dir
+        / f"{dataset}{safe_output_part(output_name)}_prediction_difference_ratio_all_metrics_by_depth.png"
+    )
+    fig.savefig(output_path, dpi=150)
+    plt.close(fig)
+    print(f"Saved {output_path}")
+
+
 def main():
     args = parse_args()
     files = discover_prediction_files(args.prediction_dir)
@@ -296,6 +373,15 @@ def main():
         for output_name in sorted(dataset_outputs, key=lambda value: (value != "", value)):
             for metric, label in METRICS:
                 plot_metric(dataset, output_name, chart_data, metric, label, args.prediction_dir)
+                plot_ratio_metric(
+                    dataset,
+                    output_name,
+                    comparison,
+                    metric,
+                    label,
+                    args.prediction_dir,
+                )
+            plot_combined_ratio_metrics(dataset, output_name, comparison, args.prediction_dir)
 
 
 if __name__ == "__main__":
