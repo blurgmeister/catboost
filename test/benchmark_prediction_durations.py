@@ -260,6 +260,56 @@ def measure_prediction_duration(model, X) -> float:
     return duration
 
 
+def weighted_average(values: np.ndarray, weights) -> float:
+    values = np.asarray(values, dtype=float)
+    if weights is None:
+        return float(np.mean(values))
+    weights = np.nan_to_num(np.asarray(weights, dtype=float), nan=0.0)
+    return float(np.average(values, weights=weights))
+
+
+def eval_rmse(model, X_eval, y_eval, weight=None) -> float:
+    predictions = np.asarray(model.predict(X_eval), dtype=float).reshape(-1)
+    targets = np.asarray(y_eval, dtype=float)
+    return float(np.sqrt(weighted_average((predictions - targets) ** 2, weight)))
+
+
+def eval_logloss(model, X_eval, y_eval, class_count: int | None, weight=None) -> float:
+    probabilities = np.asarray(model.predict_proba(X_eval), dtype=float)
+    targets = np.asarray(y_eval, dtype=int)
+    eps = np.finfo(float).eps
+
+    if (class_count or 0) <= 2:
+        if probabilities.ndim == 1:
+            positive_probabilities = probabilities
+        else:
+            positive_probabilities = probabilities[:, 1]
+        positive_probabilities = np.clip(positive_probabilities, eps, 1.0 - eps)
+        losses = -(
+            targets * np.log(positive_probabilities)
+            + (1 - targets) * np.log(1.0 - positive_probabilities)
+        )
+        return weighted_average(losses, weight)
+
+    probabilities = np.clip(probabilities, eps, 1.0)
+    probabilities = probabilities / probabilities.sum(axis=1, keepdims=True)
+    losses = -np.log(probabilities[np.arange(len(targets)), targets])
+    return weighted_average(losses, weight)
+
+
+def calculate_eval_metric(
+    model,
+    X_eval,
+    y_eval,
+    task_type: str,
+    class_count: int | None,
+    weight=None,
+) -> float:
+    if task_type == "classification":
+        return eval_logloss(model, X_eval, y_eval, class_count, weight)
+    return eval_rmse(model, X_eval, y_eval, weight)
+
+
 def build_catboost_model(
     task_type: str,
     depth: int,
@@ -545,7 +595,22 @@ def run_catboost_once(
     )
     duration = measure_prediction_duration(model, X)
     n_features_used = get_used_feature_count(model.get_feature_importance())
-    train_metric, validation_metric = get_catboost_metrics(model)
+    train_metric = calculate_eval_metric(
+        model,
+        X_train,
+        y_train,
+        task_type,
+        class_count,
+        weight=weight_train,
+    )
+    validation_metric = calculate_eval_metric(
+        model,
+        X_val,
+        y_val,
+        task_type,
+        class_count,
+        weight=weight_val,
+    )
     return {
         "model_type": "catboost",
         "dataset": dataset_name,
@@ -592,7 +657,6 @@ def run_other_once(
             weight_train=weight_train,
             weight_val=weight_val,
         )
-        train_metric, validation_metric = get_xgboost_metrics(model)
     elif model_type == "lightgbm":
         model = build_lightgbm_model(task_type, depth, seed, class_count)
         fit_lightgbm_model(
@@ -604,10 +668,25 @@ def run_other_once(
             weight_train=weight_train,
             weight_val=weight_val,
         )
-        train_metric, validation_metric = get_lightgbm_metrics(model)
     else:
         raise ValueError(f"Unsupported model_type={model_type}")
 
+    train_metric = calculate_eval_metric(
+        model,
+        X_train_enc,
+        y_train,
+        task_type,
+        class_count,
+        weight=weight_train,
+    )
+    validation_metric = calculate_eval_metric(
+        model,
+        X_val_enc,
+        y_val,
+        task_type,
+        class_count,
+        weight=weight_val,
+    )
     duration = measure_prediction_duration(model, X_full_enc)
     n_features_used = get_used_feature_count(model.feature_importances_)
     return {
