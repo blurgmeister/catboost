@@ -15,7 +15,7 @@ from openml_prediction_utils import (
 
 
 OUTPUT_DIR = "/home/kerith/workspaces/smooth_multi/predictions"
-MODEL_SEEDS = [22, 33]
+MODEL_SEEDS = range(50)
 DEFAULT_ONLY_SUITE = "all"
 
 
@@ -54,6 +54,11 @@ def run_task(task):
             {
                 "row_id": prepared.X_val.index,
                 "target": prepared.y_val.to_numpy(),
+                "w": (
+                    prepared.weight_val.to_numpy()
+                    if prepared.weight_val is not None
+                    else 1.0
+                ),
             }
         )
 

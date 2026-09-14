@@ -17,7 +17,7 @@ from openml_prediction_utils import (
 
 OUTPUT_DIR = "/home/kerith/workspaces/smooth_multi/predictions"
 AVG_SPLIT_GAPS_PATH = Path("/home/kerith/workspaces/smooth_multi/avg_split_gaps.csv")
-MODEL_SEEDS = [22, 33]
+MODEL_SEEDS = range(50)
 DEFAULT_ABSOLUTE_SPAN = 1.0
 DEFAULT_ONLY_SUITE = "all"
 INTERPOLATION_PARAMS = {
@@ -113,6 +113,11 @@ def run_task(task, spans_by_dataset_depth):
             {
                 "row_id": prepared.X_val.index,
                 "target": prepared.y_val.to_numpy(),
+                "w": (
+                    prepared.weight_val.to_numpy()
+                    if prepared.weight_val is not None
+                    else 1.0
+                ),
             }
         )
 
