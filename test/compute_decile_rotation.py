@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import csv
 import math
+import os
 import statistics
 from collections import defaultdict
 from pathlib import Path
@@ -42,6 +43,7 @@ DEFAULT_DATASET_SUMMARY_OUTPUT_PATH = Path(
     "/home/kerith/workspaces/smooth_multi/decile/"
     "decile_rotation_summary_by_dataset.csv"
 )
+DEFAULT_PLOT_OUTPUT_DIR = Path("/home/kerith/workspaces/smooth_multi/decile")
 
 GROUP_COLUMNS = ("dataset", "depth", "class", "random_seed")
 SUMMARY_GROUP_COLUMNS = ("dataset", "depth", "class")
@@ -78,6 +80,7 @@ SUMMARY_OUTPUT_COLUMNS = (
 )
 DATASET_SUMMARY_OUTPUT_COLUMNS = ("dataset", *SUMMARY_OUTPUT_COLUMNS[3:])
 BROAD_SUMMARY_METRICS = (
+    "mean_absolute_percentage_difference",
     "slope_ratio",
     "slope_angle_difference_degrees",
     "endpoint_slope_angle_difference_degrees",
@@ -101,6 +104,24 @@ ALL_SUMMARY_OUTPUT_COLUMNS = tuple(
     for statistic in BROAD_SUMMARY_STATISTICS
 )
 DEPTH_SUMMARY_OUTPUT_COLUMNS = ("depth", *ALL_SUMMARY_OUTPUT_COLUMNS)
+PLOT_METRICS = (
+    (
+        "mean_absolute_percentage_difference",
+        "Mean absolute prediction difference",
+        "Mean absolute percentage difference (proportion)",
+    ),
+    ("slope_ratio", "Fitted slope ratio", "Smoothed / unsmoothed slope"),
+    (
+        "slope_angle_difference_degrees",
+        "Fitted slope angle difference",
+        "Angle difference (degrees)",
+    ),
+    (
+        "endpoint_slope_angle_difference_degrees",
+        "Decile 1-to-10 slope angle difference",
+        "Endpoint angle difference (degrees)",
+    ),
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -127,6 +148,12 @@ def parse_args() -> argparse.Namespace:
         "--dataset-summary-output",
         type=Path,
         default=DEFAULT_DATASET_SUMMARY_OUTPUT_PATH,
+    )
+    parser.add_argument(
+        "--plot-output-dir",
+        type=Path,
+        default=DEFAULT_PLOT_OUTPUT_DIR,
+        help="Directory to receive the four depth scatter plots.",
     )
     return parser.parse_args()
 
@@ -414,6 +441,130 @@ def write_rows(
     return row_count
 
 
+def read_plot_rows(
+    input_path: Path, required_columns: Sequence[str]
+) -> list[dict[str, str]]:
+    """Read a generated summary CSV and validate its plotting columns."""
+    with input_path.open(newline="", encoding="utf-8") as input_file:
+        reader = csv.DictReader(input_file)
+        missing = sorted(set(required_columns).difference(reader.fieldnames or ()))
+        if missing:
+            raise ValueError(
+                f"Missing plotting columns in {input_path}: {', '.join(missing)}"
+            )
+        rows = list(reader)
+    if not rows:
+        raise ValueError(f"Plotting input contains no data rows: {input_path}")
+    return rows
+
+
+def create_rotation_plots(
+    summary_path: Path,
+    depth_summary_path: Path,
+    output_dir: Path,
+) -> list[Path]:
+    """Plot dataset/class values with global depth-level summary series."""
+    os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError as error:
+        raise RuntimeError(
+            "Creating rotation plots requires matplotlib. Run this script in "
+            "the project development environment."
+        ) from error
+
+    summary_columns = ["dataset", "depth", "class"]
+    depth_summary_columns = ["depth"]
+    for metric, _, _ in PLOT_METRICS:
+        summary_columns.extend((f"{metric}_mean", f"{metric}_median"))
+        depth_summary_columns.extend((f"{metric}_mean", f"{metric}_median"))
+
+    summary_rows = read_plot_rows(summary_path, summary_columns)
+    depth_summary_rows = read_plot_rows(depth_summary_path, depth_summary_columns)
+    depth_summary_rows.sort(key=lambda row: float(row["depth"]))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_paths: list[Path] = []
+
+    depth_values = [float(row["depth"]) for row in summary_rows]
+    unique_depths = sorted(set(depth_values))
+    for metric, title, y_label in PLOT_METRICS:
+        mean_column = f"{metric}_mean"
+        median_column = f"{metric}_median"
+        mean_values = [float(row[mean_column]) for row in summary_rows]
+        median_values = [float(row[median_column]) for row in summary_rows]
+        global_depths = [float(row["depth"]) for row in depth_summary_rows]
+        global_means = [float(row[mean_column]) for row in depth_summary_rows]
+        global_medians = [float(row[median_column]) for row in depth_summary_rows]
+
+        numeric_values = [
+            *mean_values,
+            *median_values,
+            *global_means,
+            *global_medians,
+        ]
+        if not all(math.isfinite(value) for value in numeric_values):
+            raise ValueError(f"Non-finite plotting value found for {metric}")
+
+        figure, axis = plt.subplots(figsize=(11, 7))
+        axis.scatter(
+            depth_values,
+            mean_values,
+            marker="o",
+            s=34,
+            alpha=0.45,
+            color="#1f77b4",
+            edgecolors="none",
+            label="Dataset/class mean",
+        )
+        axis.scatter(
+            depth_values,
+            median_values,
+            marker="x",
+            s=38,
+            alpha=0.6,
+            color="#ff7f0e",
+            linewidths=1.2,
+            label="Dataset/class median",
+        )
+        axis.plot(
+            global_depths,
+            global_means,
+            color="#174a6e",
+            linestyle="--",
+            linewidth=2,
+            marker="D",
+            markersize=5,
+            label="Global mean by depth",
+        )
+        axis.plot(
+            global_depths,
+            global_medians,
+            color="#a64b00",
+            linestyle=":",
+            linewidth=2,
+            marker="s",
+            markersize=5,
+            label="Global median by depth",
+        )
+        axis.set_title(f"{title} by tree depth")
+        axis.set_xlabel("Tree depth")
+        axis.set_ylabel(y_label)
+        axis.set_xticks(unique_depths)
+        axis.grid(True, alpha=0.25)
+        axis.legend()
+        figure.tight_layout()
+
+        output_path = output_dir / f"scatter_{metric}_by_depth.png"
+        figure.savefig(output_path, dpi=200, bbox_inches="tight")
+        plt.close(figure)
+        output_paths.append(output_path)
+
+    return output_paths
+
+
 def main() -> None:
     args = parse_args()
     grouped = read_groups(args.input)
@@ -453,6 +604,11 @@ def main() -> None:
         f"Wrote {depth_summary_count:,} depth summary rows to "
         f"{args.depth_summary_output}"
     )
+    plot_paths = create_rotation_plots(
+        args.summary_output, args.depth_summary_output, args.plot_output_dir
+    )
+    for plot_path in plot_paths:
+        print(f"Saved scatter plot to {plot_path}")
 
 
 if __name__ == "__main__":
