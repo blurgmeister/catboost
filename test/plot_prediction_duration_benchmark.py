@@ -11,6 +11,7 @@ Input:
 Outputs:
   - one PNG chart per dataset
   - one summary CSV with means / SEM / 95% CI per dataset-depth-series
+  - one high-level CSV with the slowest series per dataset-depth
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from scipy.stats import t as student_t
 INPUT_PATH = Path("/home/kerith/workspaces/smooth_multi/prediction_duration_benchmark.csv")
 OUTPUT_DIR = Path("/home/kerith/workspaces/smooth_multi/prediction_duration_charts")
 SUMMARY_PATH = OUTPUT_DIR / "prediction_duration_benchmark_summary.csv"
+HIGHLEVEL_SUMMARY_PATH = OUTPUT_DIR / "prediction_duration_benchmark_highlevel.csv"
 TWO_SIDED_95_PERCENT_QUANTILE = 0.975
 
 SERIES_ORDER = [
@@ -108,6 +110,17 @@ def build_summary(df: pd.DataFrame) -> pd.DataFrame:
     return summary
 
 
+def build_highlevel_summary(summary: pd.DataFrame) -> pd.DataFrame:
+    return (
+        summary.sort_values(
+            ["dataset", "depth", "mean_prediction_duration_ms", "series"],
+            ascending=[True, True, False, True],
+        )
+        .drop_duplicates(["dataset", "depth"], keep="first")
+        .reset_index(drop=True)
+    )
+
+
 def plot_dataset(summary: pd.DataFrame, dataset: str) -> Path:
     dataset_summary = summary[summary["dataset"] == dataset]
     if dataset_summary.empty:
@@ -164,12 +177,15 @@ def main() -> None:
 
     summary = summary[summary["dataset"].isin(datasets)].reset_index(drop=True)
     summary.to_csv(SUMMARY_PATH, index=False)
+    highlevel_summary = build_highlevel_summary(summary)
+    highlevel_summary.to_csv(HIGHLEVEL_SUMMARY_PATH, index=False)
 
     output_paths = []
     for dataset in datasets:
         output_paths.append(plot_dataset(summary, dataset))
 
     print(f"Saved summary: {SUMMARY_PATH}")
+    print(f"Saved high-level summary: {HIGHLEVEL_SUMMARY_PATH}")
     for output_path in output_paths:
         print(f"Saved chart: {output_path}")
 
