@@ -10,6 +10,8 @@ Input:
 
 Outputs:
   - one PNG chart per dataset
+  - one PNG overview showing the slowest series per dataset-depth
+  - one PNG bar chart counting slowest-model occurrences by depth
   - one summary CSV with means / SEM / 95% CI per dataset-depth-series
   - one high-level CSV with the slowest series per dataset-depth
 """
@@ -23,7 +25,9 @@ from pathlib import Path
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
+from matplotlib.ticker import MaxNLocator
 from scipy.stats import t as student_t
 
 
@@ -31,6 +35,8 @@ INPUT_PATH = Path("/home/kerith/workspaces/smooth_multi/prediction_duration_benc
 OUTPUT_DIR = Path("/home/kerith/workspaces/smooth_multi/prediction_duration_charts")
 SUMMARY_PATH = OUTPUT_DIR / "prediction_duration_benchmark_summary.csv"
 HIGHLEVEL_SUMMARY_PATH = OUTPUT_DIR / "prediction_duration_benchmark_highlevel.csv"
+SLOWEST_PLOT_PATH = OUTPUT_DIR / "prediction_duration_slowest.png"
+SLOWEST_BARCHART_PATH = OUTPUT_DIR / "prediction_duration_barchart.png"
 TWO_SIDED_95_PERCENT_QUANTILE = 0.975
 
 SERIES_ORDER = [
@@ -121,6 +127,89 @@ def build_highlevel_summary(summary: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def plot_slowest_series(highlevel_summary: pd.DataFrame) -> Path:
+    datasets = sorted(highlevel_summary["dataset"].unique())
+    dataset_positions = {dataset: position for position, dataset in enumerate(datasets)}
+    figure_height = max(5.25, 0.4 * len(datasets) + 1.5)
+    fig, ax = plt.subplots(figsize=(9, figure_height), constrained_layout=True)
+
+    for series_name in SERIES_ORDER:
+        series = highlevel_summary[highlevel_summary["series"] == series_name]
+        if series.empty:
+            continue
+
+        ax.scatter(
+            series["depth"],
+            series["dataset"].map(dataset_positions),
+            s=70,
+            color=SERIES_COLORS[series_name],
+            label=SERIES_LABELS[series_name],
+            zorder=3,
+        )
+
+    ax.set_title("Slowest Prediction Model by Dataset and Depth")
+    ax.set_xlabel("Model depth")
+    ax.set_ylabel("Dataset")
+    ax.set_xticks(sorted(highlevel_summary["depth"].unique()))
+    ax.set_yticks(range(len(datasets)), [dataset_title(dataset) for dataset in datasets])
+    ax.invert_yaxis()
+    ax.grid(alpha=0.25, zorder=0)
+    ax.legend(
+        title="Model",
+        frameon=False,
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.14),
+        ncol=2,
+    )
+
+    fig.savefig(SLOWEST_PLOT_PATH, dpi=200)
+    plt.close(fig)
+    return SLOWEST_PLOT_PATH
+
+
+def plot_slowest_model_counts(highlevel_summary: pd.DataFrame) -> Path:
+    depths = sorted(highlevel_summary["depth"].unique())
+    counts = (
+        highlevel_summary.groupby(["depth", "series"])
+        .size()
+        .unstack(fill_value=0)
+        .reindex(index=depths, columns=SERIES_ORDER, fill_value=0)
+    )
+
+    x_positions = np.arange(len(depths))
+    cumulative_counts = np.zeros(len(depths))
+    fig, ax = plt.subplots(figsize=(9, 5.25), constrained_layout=True)
+
+    for series_name in SERIES_ORDER:
+        ax.bar(
+            x_positions,
+            counts[series_name],
+            width=0.7,
+            bottom=cumulative_counts,
+            color=SERIES_COLORS[series_name],
+            label=SERIES_LABELS[series_name],
+        )
+        cumulative_counts += counts[series_name].to_numpy()
+
+    ax.set_title("Slowest Model Counts by Depth")
+    ax.set_xlabel("Model depth")
+    ax.set_ylabel("Number of datasets where slowest")
+    ax.set_xticks(x_positions, depths)
+    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+    ax.grid(axis="y", alpha=0.25)
+    ax.legend(
+        title="Model",
+        frameon=False,
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.14),
+        ncol=2,
+    )
+
+    fig.savefig(SLOWEST_BARCHART_PATH, dpi=200)
+    plt.close(fig)
+    return SLOWEST_BARCHART_PATH
+
+
 def plot_dataset(summary: pd.DataFrame, dataset: str) -> Path:
     dataset_summary = summary[summary["dataset"] == dataset]
     if dataset_summary.empty:
@@ -179,6 +268,8 @@ def main() -> None:
     summary.to_csv(SUMMARY_PATH, index=False)
     highlevel_summary = build_highlevel_summary(summary)
     highlevel_summary.to_csv(HIGHLEVEL_SUMMARY_PATH, index=False)
+    slowest_plot_path = plot_slowest_series(highlevel_summary)
+    slowest_barchart_path = plot_slowest_model_counts(highlevel_summary)
 
     output_paths = []
     for dataset in datasets:
@@ -186,6 +277,8 @@ def main() -> None:
 
     print(f"Saved summary: {SUMMARY_PATH}")
     print(f"Saved high-level summary: {HIGHLEVEL_SUMMARY_PATH}")
+    print(f"Saved slowest-series chart: {slowest_plot_path}")
+    print(f"Saved slowest-model bar chart: {slowest_barchart_path}")
     for output_path in output_paths:
         print(f"Saved chart: {output_path}")
 
