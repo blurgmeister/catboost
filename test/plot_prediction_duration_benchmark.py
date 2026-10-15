@@ -23,11 +23,13 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 
 import matplotlib.pyplot as plt
 import pandas as pd
+from scipy.stats import t as student_t
 
 
 INPUT_PATH = Path("/home/kerith/workspaces/smooth_multi/prediction_duration_benchmark.csv")
 OUTPUT_DIR = Path("/home/kerith/workspaces/smooth_multi/prediction_duration_charts")
 SUMMARY_PATH = OUTPUT_DIR / "prediction_duration_benchmark_summary.csv"
+TWO_SIDED_95_PERCENT_QUANTILE = 0.975
 
 SERIES_ORDER = [
     "catboost_unsmoothed",
@@ -95,7 +97,14 @@ def build_summary(df: pd.DataFrame) -> pd.DataFrame:
         )
         .sort_values(["dataset", "series", "depth"])
     )
-    summary["ci95_prediction_duration_ms"] = 1.96 * summary["sem_prediction_duration_ms"]
+    degrees_of_freedom = summary["n_models"] - 1
+    critical_values = student_t.ppf(
+        TWO_SIDED_95_PERCENT_QUANTILE,
+        degrees_of_freedom,
+    )
+    summary["ci95_prediction_duration_ms"] = (
+        critical_values * summary["sem_prediction_duration_ms"]
+    )
     return summary
 
 
